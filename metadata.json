@@ -1,0 +1,5 @@
+{
+  "name": "Sok-Maker Clone",
+  "description": "A minimalist game creation tool inspired by Sok-Stories. Draw sprites, define logic rules, and play your own puzzle games.",
+  "requestFramePermissions": []
+}

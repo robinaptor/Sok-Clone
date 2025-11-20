@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sok-Maker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Gochi+Hand&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+    
+    <style>
+      body {
+        font-family: 'Gochi Hand', cursive;
+        background-color: #fdfbf7;
+      }
+
+      @keyframes squiggly-anim {
+        0% { filter: url('#squiggly-0'); }
+        25% { filter: url('#squiggly-1'); }
+        50% { filter: url('#squiggly-2'); }
+        75% { filter: url('#squiggly-3'); }
+        100% { filter: url('#squiggly-4'); }
+      }
+
+      .wiggle-effect {
+        animation: squiggly-anim 0.3s linear infinite;
+        transform: translateZ(0); 
+      }
+
+      .sketch-box, .sketch-btn, img, canvas {
+        animation: squiggly-anim 0.4s linear infinite;
+      }
+
+      .sketch-box {
+        border: 3px solid black;
+        border-radius: 2% 6% 5% 4% / 1% 1% 2% 4%;
+        position: relative;
+        background: white;
+      }
+      
+      .sketch-box::before {
+        content: '';
+        position: absolute;
+        top: -2px; left: -2px; right: -2px; bottom: -2px;
+        border: 2px solid black;
+        border-radius: 6% 2% 4% 5% / 1% 1% 2% 4%;
+        transform: rotate(-0.5deg);
+        pointer-events: none;
+        opacity: 0.5;
+      }
+
+      .sketch-btn {
+        border: 3px solid black;
+        border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
+        transition: all 0.1s ease-in-out;
+        background: white;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .sketch-btn:hover {
+        transform: scale(1.05) rotate(1deg);
+        box-shadow: 3px 3px 0px rgba(0,0,0,0.2);
+      }
+
+      .sketch-btn:active {
+        transform: scale(0.95) rotate(-1deg);
+        box-shadow: 1px 1px 0px rgba(0,0,0,0.2);
+      }
+      
+      .sketch-btn-active {
+        background: #a7f3d0;
+        border-width: 4px;
+        box-shadow: inset 3px 3px 0px rgba(0,0,0,0.1);
+        transform: rotate(-2deg);
+      }
+
+      .dragging-over {
+        background-color: rgba(0, 0, 0, 0.05) !important;
+        box-shadow: inset 0 0 0 4px rgba(0,0,0,0.2);
+      }
+    </style>
+    
+    </head>
+  <body>
+    <div id="root"></div>
+    
+    <svg style="display: none;">
+      <defs>
+        <filter id="squiggly-0">
+          <feTurbulence id="turbulence" baseFrequency="0.015" numOctaves="2" result="noise" seed="0"/>
+          <feDisplacementMap id="displacement" in="SourceGraphic" in2="noise" scale="2" />
+        </filter>
+        <filter id="squiggly-1">
+          <feTurbulence id="turbulence" baseFrequency="0.015" numOctaves="2" result="noise" seed="1"/>
+          <feDisplacementMap in="SourceGraphic" in2="noise" scale="2" />
+        </filter>
+        <filter id="squiggly-2">
+          <feTurbulence id="turbulence" baseFrequency="0.015" numOctaves="2" result="noise" seed="2"/>
+          <feDisplacementMap in="SourceGraphic" in2="noise" scale="1" />
+        </filter>
+        <filter id="squiggly-3">
+          <feTurbulence id="turbulence" baseFrequency="0.015" numOctaves="2" result="noise" seed="3"/>
+          <feDisplacementMap in="SourceGraphic" in2="noise" scale="2" />
+        </filter>
+        <filter id="squiggly-4">
+          <feTurbulence id="turbulence" baseFrequency="0.015" numOctaves="2" result="noise" seed="4"/>
+          <feDisplacementMap in="SourceGraphic" in2="noise" scale="1" />
+        </filter>
+      </defs>
+    </svg>
+    
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>
