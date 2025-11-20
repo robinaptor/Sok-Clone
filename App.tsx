@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Actor, GameData, Rule, ToolMode, LevelObject, Sound } from './types';
 import { INITIAL_GAME_DATA, CANVAS_SIZE, DEFAULT_HERO, SCENE_WIDTH, SCENE_HEIGHT, ACTOR_SIZE } from './constants';
@@ -27,7 +26,13 @@ const App: React.FC = () => {
     const stored = localStorage.getItem('sok_maker_projects');
     if (stored) {
       try {
-        setSavedProjects(JSON.parse(stored));
+        const parsed = JSON.parse(stored);
+        // MIGRATION: Ensure all projects have sounds array
+        const migrated = parsed.map((p: any) => ({
+            ...p,
+            sounds: p.sounds || []
+        }));
+        setSavedProjects(migrated);
       } catch (e) { console.error("Failed to load projects", e); }
     }
   }, []);
@@ -75,9 +80,11 @@ const App: React.FC = () => {
   };
 
   const handleLoadProject = (project: GameData) => {
-    setGameData(project);
-    setSelectedActorId(project.actors[0]?.id || '');
-    setCurrentSceneId(project.scenes[0]?.id || 'scene_1');
+    // Ensure legacy projects have sounds
+    const loadedData = { ...project, sounds: project.sounds || [] };
+    setGameData(loadedData);
+    setSelectedActorId(loadedData.actors[0]?.id || '');
+    setCurrentSceneId(loadedData.scenes[0]?.id || 'scene_1');
     setView(ToolMode.SCENE);
   };
 

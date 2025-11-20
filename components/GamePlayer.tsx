@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { GameData, InteractionType, LevelObject, RuleTrigger, RuleEffect } from '../types';
 import { SCENE_WIDTH, SCENE_HEIGHT, ACTOR_SIZE } from '../constants';
@@ -71,16 +70,16 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
       if (sound) {
           try {
               const audio = new Audio(sound.data);
-              audio.play();
+              audio.play().catch(e => console.log("Audio play blocked (user interaction required)"));
           } catch (e) { console.error("Audio play failed", e); }
       }
   };
 
   // --- ASYNC RULE EXECUTOR ---
-  const executeRuleEffects = async (ruleId: string, effects: RuleEffect[], relatedObjId: string, relatedActorId: string, soundId?: string) => {
+  const executeRuleEffects = async (ruleId: string, effects: RuleEffect[], relatedObjId: string, relatedActorId: string) => {
       
-      // Play Sound Immediately if exists
-      if (soundId) playSound(soundId);
+      // Note: We DO NOT play sound here anymore. Sounds are played immediately by the trigger handler
+      // to ensure they happen exactly when the event occurs, not after async processing.
 
       for (const effect of effects) {
           // Sequence Delay
@@ -149,7 +148,8 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
           // We ensure START rules run exactly once per reset by using the ref
           if (!executingRuleIds.current.has(rule.id)) {
                executingRuleIds.current.add(rule.id); 
-               executeRuleEffects(rule.id, rule.effects, 'GLOBAL', 'GLOBAL', rule.soundId);
+               if (rule.soundId) playSound(rule.soundId);
+               executeRuleEffects(rule.id, rule.effects, 'GLOBAL', 'GLOBAL');
           }
       });
 
@@ -163,11 +163,13 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                const targets = objects.filter(o => o.actorId === rule.subjectId);
                if (targets.length > 0) {
                    targets.forEach(t => {
-                        executeRuleEffects(rule.id, rule.effects, t.id, t.actorId, rule.soundId);
+                        if (rule.soundId) playSound(rule.soundId);
+                        executeRuleEffects(rule.id, rule.effects, t.id, t.actorId);
                    });
                } else if (!rule.subjectId) {
-                   // Allow global timers (rare case but possible)
-                   // executeRuleEffects(rule.id, rule.effects, 'GLOBAL', 'GLOBAL', rule.soundId);
+                   // Global timer
+                   if (rule.soundId) playSound(rule.soundId);
+                   // executeRuleEffects(rule.id, rule.effects, 'GLOBAL', 'GLOBAL');
                }
           });
       }, 2000); // Every 2 seconds
@@ -206,8 +208,9 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
           if (immediateDestroys) {
              setObjects(prev => prev.filter(o => o.id !== obj.id));
           }
-
-          await executeRuleEffects(rule.id, rule.effects, obj.id, obj.actorId, rule.soundId);
+          
+          if (rule.soundId) playSound(rule.soundId);
+          await executeRuleEffects(rule.id, rule.effects, obj.id, obj.actorId);
           executingRuleIds.current.delete(rule.id);
       }
 
@@ -274,20 +277,20 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                           const hasPush = rule.effects.some(e => e.type === InteractionType.PUSH);
 
                           if (hasBlock || hasPush) allowMove = false;
+                          
+                          // Play sound ONCE (if rule not already running)
+                          if (rule.soundId && !executingRuleIds.current.has(rule.id)) {
+                               playSound(rule.soundId);
+                          }
 
                           if (!executingRuleIds.current.has(rule.id)) {
                               const hasStateEffects = rule.effects.some(e => 
                                   e.type === InteractionType.WIN || 
-                                  e.type === InteractionType.DESTROY_OBJECT ||
+                                  e.type === InteractionType.DESTROY_OBJECT || 
                                   e.type === InteractionType.DESTROY_SUBJECT ||
                                   e.type === InteractionType.CHANGE_SCENE ||
                                   e.type === InteractionType.SPAWN
                               );
-
-                              // Always try to play sound on collision
-                              if (rule.soundId && !executingRuleIds.current.has(rule.id)) {
-                                   playSound(rule.soundId);
-                              }
 
                               if (hasStateEffects) {
                                   executingRuleIds.current.add(rule.id);
@@ -297,7 +300,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                                       if(e.type === InteractionType.DESTROY_SUBJECT) idsToDestroy.push(movingObj.id);
                                   });
 
-                                  executeRuleEffects(rule.id, rule.effects, movingObj.id, movingObj.actorId, rule.soundId)
+                                  executeRuleEffects(rule.id, rule.effects, movingObj.id, movingObj.actorId)
                                       .then(() => {
                                           executingRuleIds.current.delete(rule.id);
                                       });
