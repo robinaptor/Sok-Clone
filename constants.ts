@@ -35,7 +35,8 @@ export const INITIAL_GAME_DATA: GameData = {
         { id: 'start_p1', actorId: 'hero', x: 360, y: 260, isLocked: false }
       ] 
     }
-  ]
+  ],
+  sounds: [] // NEW
 };
 
 export const INTERACTION_LABELS: Record<InteractionType, string> = {
@@ -45,6 +46,7 @@ export const INTERACTION_LABELS: Record<InteractionType, string> = {
   [InteractionType.DESTROY_SUBJECT]: 'Dies by',
   [InteractionType.WIN]: 'Wins',
   [InteractionType.CHANGE_SCENE]: 'Goes to Next Scene',
+  [InteractionType.SPAWN]: 'Appears',
   [InteractionType.NOTHING]: 'Ignores',
   [InteractionType.THEN]: 'Then...'
 };
@@ -53,6 +55,8 @@ export const INTERACTION_LABELS: Record<InteractionType, string> = {
 export const TRIGGER_MAGNETS = [
     { type: RuleTrigger.COLLISION, label: 'TOUCH', color: '#fcd34d', icon: 'eye' }, // Yellow
     { type: RuleTrigger.CLICK, label: 'CLICK', color: '#fcd34d', icon: 'hand' }, // Yellow
+    { type: RuleTrigger.START, label: 'START', color: '#86efac', icon: 'flag' }, // Green
+    { type: RuleTrigger.TIMER, label: 'TIMER', color: '#93c5fd', icon: 'hourglass' }, // Blue
 ];
 
 export const EFFECT_MAGNETS = [
@@ -60,6 +64,7 @@ export const EFFECT_MAGNETS = [
     { type: InteractionType.PUSH, label: 'PUSH', color: '#4ade80', icon: 'arrow-right' }, // Green
     { type: InteractionType.DESTROY_OBJECT, label: 'EAT', color: '#ef4444', icon: 'utensils' }, // Red
     { type: InteractionType.DESTROY_SUBJECT, label: 'DIE', color: '#ef4444', icon: 'skull' }, // Red
+    { type: InteractionType.SPAWN, label: 'SPAWN', color: '#d8b4fe', icon: 'sparkles' }, // Purple/Magic
     { type: InteractionType.CHANGE_SCENE, label: 'DOOR', color: '#c084fc', icon: 'door-open' }, // Purple
     { type: InteractionType.WIN, label: 'WIN', color: '#facc15', icon: 'trophy' }, // Gold
     { type: InteractionType.THEN, label: 'THEN', color: '#9ca3af', icon: 'timer' }, // Grey/Timer

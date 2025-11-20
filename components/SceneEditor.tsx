@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { GameData, LevelObject, Actor, Scene } from '../types';
 import { SCENE_WIDTH, SCENE_HEIGHT, ACTOR_SIZE } from '../constants';

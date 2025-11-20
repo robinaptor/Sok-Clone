@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { GameData } from '../types';
 import { FolderPlus, Trash2, Play, Edit3 } from 'lucide-react';

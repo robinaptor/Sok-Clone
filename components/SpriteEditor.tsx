@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Actor } from '../types';
 import { CANVAS_SIZE } from '../constants';

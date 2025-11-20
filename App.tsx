@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Actor, GameData, Rule, ToolMode, LevelObject } from './types';
+import { Actor, GameData, Rule, ToolMode, LevelObject, Sound } from './types';
 import { INITIAL_GAME_DATA, CANVAS_SIZE, DEFAULT_HERO, SCENE_WIDTH, SCENE_HEIGHT, ACTOR_SIZE } from './constants';
 import { SpriteEditor } from './components/SpriteEditor';
 import { SceneEditor } from './components/SceneEditor';
@@ -64,7 +64,8 @@ const App: React.FC = () => {
       // Fresh unique IDs for default data
       actors: [{ ...DEFAULT_HERO, id: Math.random().toString(36).substr(2, 9) }],
       scenes: [{ id: 'scene_1', objects: [] }],
-      rules: []
+      rules: [],
+      sounds: []
     };
     // Reset selection
     setGameData(newProject);
@@ -152,6 +153,7 @@ const App: React.FC = () => {
   };
 
   const updateRules = (rules: Rule[]) => setGameData({ ...gameData, rules });
+  const updateSounds = (sounds: Sound[]) => setGameData({ ...gameData, sounds }); // NEW
   const updateTitle = (title: string) => setGameData({ ...gameData, title });
 
   // --- AI ---
@@ -165,7 +167,8 @@ const App: React.FC = () => {
         title: generated.title || "My Story",
         actors: generated.actors || [DEFAULT_HERO],
         rules: generated.rules || [],
-        scenes: generated.scenes || [{ id: 'scene_1', objects: [] }]
+        scenes: generated.scenes || [{ id: 'scene_1', objects: [] }],
+        sounds: []
       };
       setGameData(newProject);
       setSelectedActorId(newProject.actors?.[0]?.id || '');
@@ -345,7 +348,12 @@ const App: React.FC = () => {
             )}
             {view === ToolMode.RULES && (
                 <div className="h-full overflow-hidden p-4">
-                    <RuleEditor gameData={gameData} onUpdateRules={updateRules} currentSceneId={currentSceneId} />
+                    <RuleEditor 
+                        gameData={gameData} 
+                        onUpdateRules={updateRules} 
+                        onUpdateSounds={updateSounds} 
+                        currentSceneId={currentSceneId} 
+                    />
                 </div>
             )}
          </div>

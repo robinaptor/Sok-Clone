@@ -24,6 +24,9 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
   // Keep track of executing rules to prevent double-triggering same sequence instantly
   const executingRuleIds = useRef<Set<string>>(new Set());
 
+  // NEW: Keep track of active physical collisions to trigger rules only ON ENTER
+  const activeCollisions = useRef<Set<string>>(new Set());
+
   // Init or Reset
   useEffect(() => { resetGame(currentSceneId); }, [currentSceneId]);
 
@@ -34,6 +37,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
     setStatus('PLAYING');
     setDraggingId(null);
     executingRuleIds.current.clear();
+    activeCollisions.current.clear();
   };
 
   // Internal helper to switch scenes during play
@@ -61,9 +65,23 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
       return gameData.rules.filter(r => r.scope === 'GLOBAL' || r.scope === activeSceneId);
   };
 
+  // --- HELPER: SOUND ---
+  const playSound = (soundId: string) => {
+      const sound = gameData.sounds?.find(s => s.id === soundId);
+      if (sound) {
+          try {
+              const audio = new Audio(sound.data);
+              audio.play();
+          } catch (e) { console.error("Audio play failed", e); }
+      }
+  };
+
   // --- ASYNC RULE EXECUTOR ---
-  const executeRuleEffects = async (effects: RuleEffect[], relatedObjId: string, relatedActorId: string) => {
+  const executeRuleEffects = async (ruleId: string, effects: RuleEffect[], relatedObjId: string, relatedActorId: string, soundId?: string) => {
       
+      // Play Sound Immediately if exists
+      if (soundId) playSound(soundId);
+
       for (const effect of effects) {
           // Sequence Delay
           if (effect.type === InteractionType.THEN) {
@@ -77,21 +95,85 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                   setStatus('WON');
                   break;
               case InteractionType.DESTROY_SUBJECT: // The one who triggered it
-                  setStatus('LOST'); // If hero dies, we lose generally, or just remove? Let's assume LOST for now if it's hero-like logic
-                  // But generic "Die" means remove from objects:
-                  // setObjects(prev => prev.filter(o => o.id !== relatedObjId)); // This is tricky in async if state changed
+                  setStatus('LOST'); 
                   break;
-               case InteractionType.DESTROY_OBJECT: // The passive object
-                  // handled by passing IDs usually, but for simplicity in sequences we handle state effects mainly
+               case InteractionType.DESTROY_OBJECT: 
+                  // Handled in collision logic mostly
                   break;
                case InteractionType.CHANGE_SCENE:
                   setStatus('TRANSITION');
                   await new Promise(resolve => setTimeout(resolve, 1000)); // Wait a bit for visual
                   jumpToScene(effect.targetSceneId);
                   break;
+               case InteractionType.SPAWN:
+                   if (effect.spawnActorId && effect.spawnX !== undefined && effect.spawnY !== undefined) {
+                       const newObj: LevelObject = {
+                           id: Math.random().toString(36).substr(2, 9),
+                           actorId: effect.spawnActorId,
+                           x: effect.spawnX,
+                           y: effect.spawnY,
+                           isLocked: false // Spawns are generally interactive
+                       };
+                       setObjects(prev => [...prev, newObj]);
+                   }
+                   break;
+               case InteractionType.PUSH:
+                  // "Random Push" for automated things (Timer/Start)
+                  setObjects(prev => prev.map(o => {
+                      if (o.id === relatedObjId) {
+                          const angle = Math.random() * Math.PI * 2;
+                          const dist = 50;
+                          let nx = o.x + Math.cos(angle) * dist;
+                          let ny = o.y + Math.sin(angle) * dist;
+                          nx = Math.max(0, Math.min(nx, SCENE_WIDTH - ACTOR_SIZE));
+                          ny = Math.max(0, Math.min(ny, SCENE_HEIGHT - ACTOR_SIZE));
+                          return { ...o, x: nx, y: ny };
+                      }
+                      return o;
+                  }));
+                  break;
           }
       }
   };
+
+  // --- TRIGGER: START & TIMER ---
+  useEffect(() => {
+      if (status !== 'PLAYING') return; 
+
+      const activeRules = getActiveRules();
+
+      // 1. START TRIGGER (Runs once per scene reset)
+      const startRules = activeRules.filter(r => r.trigger === RuleTrigger.START);
+      
+      startRules.forEach(rule => {
+          // We ensure START rules run exactly once per reset by using the ref
+          if (!executingRuleIds.current.has(rule.id)) {
+               executingRuleIds.current.add(rule.id); 
+               executeRuleEffects(rule.id, rule.effects, 'GLOBAL', 'GLOBAL', rule.soundId);
+          }
+      });
+
+      // 2. TIMER TRIGGER (Runs interval)
+      const timerRules = activeRules.filter(r => r.trigger === RuleTrigger.TIMER);
+
+      const interval = setInterval(() => {
+          if (status !== 'PLAYING') return;
+          
+          timerRules.forEach(rule => {
+               const targets = objects.filter(o => o.actorId === rule.subjectId);
+               if (targets.length > 0) {
+                   targets.forEach(t => {
+                        executeRuleEffects(rule.id, rule.effects, t.id, t.actorId, rule.soundId);
+                   });
+               } else if (!rule.subjectId) {
+                   // Allow global timers (rare case but possible)
+                   // executeRuleEffects(rule.id, rule.effects, 'GLOBAL', 'GLOBAL', rule.soundId);
+               }
+          });
+      }, 2000); // Every 2 seconds
+
+      return () => clearInterval(interval);
+  }, [activeSceneId, status, objects.length]); 
 
   // AABB Collision
   const checkCollision = (rect1: {x: number, y: number}, rect2: {x: number, y: number}) => {
@@ -120,22 +202,17 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
           ruleTriggered = true;
           executingRuleIds.current.add(rule.id);
 
-          // Execute Immediate Effects (State updates that shouldn't wait)
-          // Filter out effects that are "Destroy Self" etc to run immediately visually
           const immediateDestroys = rule.effects.some(e => e.type === InteractionType.DESTROY_SUBJECT || e.type === InteractionType.DESTROY_OBJECT);
-          
           if (immediateDestroys) {
              setObjects(prev => prev.filter(o => o.id !== obj.id));
           }
 
-          // Run the Sequence
-          await executeRuleEffects(rule.effects, obj.id, obj.actorId);
+          await executeRuleEffects(rule.id, rule.effects, obj.id, obj.actorId, rule.soundId);
           executingRuleIds.current.delete(rule.id);
       }
 
       if (ruleTriggered) return;
 
-      // 2. Start Dragging if NOT locked
       if (!obj.isLocked) {
         dragOffset.current = {
             x: e.nativeEvent.offsetX,
@@ -170,60 +247,70 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
           if (other.id === draggingId) continue;
 
           const isTouching = checkCollision({x: newX, y: newY}, other);
+          
+          // Collision Pair Key (Order independent)
+          const pairKey = [movingObj.id, other.id].sort().join(':');
 
-          const activeRules = getActiveRules();
-          const rules = activeRules.filter(r => 
-            r.trigger === RuleTrigger.COLLISION &&
-            r.subjectId === movingObj.actorId && 
-            r.objectId === other.actorId
-          );
+          if (isTouching) {
+              
+              // ONLY TRIGGER if not already colliding (ON ENTER)
+              if (!activeCollisions.current.has(pairKey)) {
+                  activeCollisions.current.add(pairKey);
 
-          for (const rule of rules) {
-              // NEGATION LOGIC:
-              const shouldTrigger = rule.invert ? !isTouching : isTouching;
+                  // --- FIRE COLLISION RULES ---
+                  const activeRules = getActiveRules();
+                  const rules = activeRules.filter(r => 
+                    r.trigger === RuleTrigger.COLLISION &&
+                    r.subjectId === movingObj.actorId && 
+                    r.objectId === other.actorId
+                  );
 
-              if (shouldTrigger) {
-                  
-                  // PHYSICS FIRST (Synchronous)
-                  // We look for BLOCK or PUSH in the effects list. 
-                  // Note: PUSH/BLOCK doesn't make sense with "THEN" (delay), so we apply them if present anywhere or just at start
-                  const hasBlock = rule.effects.some(e => e.type === InteractionType.BLOCK);
-                  const hasPush = rule.effects.some(e => e.type === InteractionType.PUSH);
+                  for (const rule of rules) {
+                      const shouldTrigger = rule.invert ? false : true; // Normal collision
+                      
+                      if (shouldTrigger) {
+                          // ... Logic ...
+                          const hasBlock = rule.effects.some(e => e.type === InteractionType.BLOCK);
+                          const hasPush = rule.effects.some(e => e.type === InteractionType.PUSH);
 
-                  if (isTouching) {
-                      if (hasBlock || hasPush) allowMove = false;
-                  }
+                          if (hasBlock || hasPush) allowMove = false;
 
-                  // STATE/SEQUENCE (Asynchronous)
-                  if (!executingRuleIds.current.has(rule.id)) {
-                      // Check if we have any state changing effects
-                      const hasStateEffects = rule.effects.some(e => 
-                          e.type === InteractionType.WIN || 
-                          e.type === InteractionType.DESTROY_OBJECT ||
-                          e.type === InteractionType.DESTROY_SUBJECT ||
-                          e.type === InteractionType.CHANGE_SCENE
-                      );
+                          if (!executingRuleIds.current.has(rule.id)) {
+                              const hasStateEffects = rule.effects.some(e => 
+                                  e.type === InteractionType.WIN || 
+                                  e.type === InteractionType.DESTROY_OBJECT ||
+                                  e.type === InteractionType.DESTROY_SUBJECT ||
+                                  e.type === InteractionType.CHANGE_SCENE ||
+                                  e.type === InteractionType.SPAWN
+                              );
 
-                      if (hasStateEffects) {
-                          executingRuleIds.current.add(rule.id);
-                          
-                          // Immediate removals
-                          rule.effects.forEach(e => {
-                              if(e.type === InteractionType.DESTROY_OBJECT) idsToDestroy.push(other.id);
-                              if(e.type === InteractionType.DESTROY_SUBJECT) idsToDestroy.push(movingObj.id);
-                          });
+                              // Always try to play sound on collision
+                              if (rule.soundId && !executingRuleIds.current.has(rule.id)) {
+                                   playSound(rule.soundId);
+                              }
 
-                          // Start Sequence
-                          executeRuleEffects(rule.effects, movingObj.id, movingObj.actorId)
-                              .then(() => {
-                                  // Allow re-trigger only after sequence finishes?
-                                  // For continuous collision, this might loop. 
-                                  // But usually sequence ends in Scene Change or Win, so it's fine.
-                                  // If it's just "Play Sound" (future), we might need debounce.
-                                  executingRuleIds.current.delete(rule.id);
-                              });
+                              if (hasStateEffects) {
+                                  executingRuleIds.current.add(rule.id);
+                                  
+                                  rule.effects.forEach(e => {
+                                      if(e.type === InteractionType.DESTROY_OBJECT) idsToDestroy.push(other.id);
+                                      if(e.type === InteractionType.DESTROY_SUBJECT) idsToDestroy.push(movingObj.id);
+                                  });
+
+                                  executeRuleEffects(rule.id, rule.effects, movingObj.id, movingObj.actorId, rule.soundId)
+                                      .then(() => {
+                                          executingRuleIds.current.delete(rule.id);
+                                      });
+                              }
+                          }
                       }
                   }
+              } 
+              
+          } else {
+              // Not touching
+              if (activeCollisions.current.has(pairKey)) {
+                  activeCollisions.current.delete(pairKey); // ON EXIT
               }
           }
       }
@@ -234,7 +321,6 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
               return o;
           }).filter(o => !idsToDestroy.includes(o.id)));
       } else {
-          // Even if blocked, we might need to remove destroyed objects
           if(idsToDestroy.length > 0) {
               setObjects(prev => prev.filter(o => !idsToDestroy.includes(o.id)));
           }
