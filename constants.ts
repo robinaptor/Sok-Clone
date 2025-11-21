@@ -1,4 +1,3 @@
-
 import { Actor, GameData, InteractionType, RuleTrigger } from './types';
 
 // Scene Dimensions in Pixels
@@ -56,6 +55,7 @@ export const TRIGGER_MAGNETS = [
     { type: RuleTrigger.COLLISION, label: 'TOUCH', color: '#fcd34d', icon: 'eye' }, // Yellow
     { type: RuleTrigger.CLICK, label: 'CLICK', color: '#fcd34d', icon: 'hand' }, // Yellow
     { type: RuleTrigger.START, label: 'START', color: '#86efac', icon: 'flag' }, // Green
+    { type: RuleTrigger.DELAY, label: 'WAIT', color: '#fb923c', icon: 'clock' }, // Orange
     { type: RuleTrigger.TIMER, label: 'TIMER', color: '#93c5fd', icon: 'hourglass' }, // Blue
 ];
 

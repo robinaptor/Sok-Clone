@@ -1,4 +1,3 @@
-
 export enum ToolMode {
   PROJECTS = 'PROJECTS', // New Home Screen
   DRAW = 'DRAW',
@@ -23,7 +22,8 @@ export enum RuleTrigger {
   COLLISION = 'COLLISION',
   CLICK = 'CLICK',
   START = 'START', // Triggered when scene loads
-  TIMER = 'TIMER'  // Triggered periodically
+  TIMER = 'TIMER', // Triggered periodically
+  DELAY = 'DELAY'  // New: Triggered once after X seconds
 }
 
 export enum InteractionType {
@@ -55,7 +55,8 @@ export interface Rule {
   objectId?: string;  // The actor being hit (only for collision)
   effects: RuleEffect[]; // MULTIPLE effects
   invert?: boolean; // The "NOT" logic
-  soundId?: string; // NEW: Audio to play when triggered
+  soundId?: string; // Audio to play when triggered
+  delayDuration?: number; // NEW: Duration for DELAY trigger in ms
 }
 
 export interface LevelObject {
@@ -78,7 +79,7 @@ export interface GameData {
   actors: Actor[];
   rules: Rule[];
   scenes: Scene[];
-  sounds: Sound[]; // NEW: Library of sounds
+  sounds: Sound[]; // Library of sounds
   backgroundColor: string;
 }
 

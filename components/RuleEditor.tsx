@@ -1,14 +1,13 @@
-
 import React, { useState } from 'react';
 import { GameData, Rule, InteractionType, RuleTrigger, Sound } from '../types';
 import { TRIGGER_MAGNETS, EFFECT_MAGNETS, SCENE_WIDTH, SCENE_HEIGHT } from '../constants';
-import { Trash2, Square, ArrowRight, Trophy, HelpCircle, Hand, Eye, DoorOpen, Utensils, Skull, Puzzle, Ban, RotateCw, Globe, MapPin, X, Timer, ChevronsRight, Flag, Hourglass, Sparkles, Crosshair, Volume2, VolumeX } from 'lucide-react';
+import { Trash2, Square, ArrowRight, Trophy, HelpCircle, Hand, Eye, DoorOpen, Utensils, Skull, Puzzle, Ban, RotateCw, Globe, MapPin, X, Timer, ChevronsRight, Flag, Hourglass, Sparkles, Crosshair, Volume2, VolumeX, Clock } from 'lucide-react';
 import { SoundRecorder } from './SoundRecorder';
 
 interface RuleEditorProps {
   gameData: GameData;
   onUpdateRules: (rules: Rule[]) => void;
-  onUpdateSounds: (sounds: Sound[]) => void; // NEW
+  onUpdateSounds: (sounds: Sound[]) => void;
   currentSceneId: string;
 }
 
@@ -22,6 +21,10 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
   // State for Sound Modal
   const [recordingForRuleId, setRecordingForRuleId] = useState<string | null>(null);
 
+  // State for Duration Picker Modal (NEW)
+  const [settingDurationForRuleId, setSettingDurationForRuleId] = useState<string | null>(null);
+  const [tempDuration, setTempDuration] = useState<number>(1);
+
   const activeScopeId = viewScope === 'GLOBAL' ? 'GLOBAL' : currentSceneId;
   const filteredRules = gameData.rules.filter(r => r.scope === activeScopeId);
   const currentScene = gameData.scenes.find(s => s.id === currentSceneId) || gameData.scenes[0];
@@ -33,6 +36,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
           case 'hand': return <Hand size={20} strokeWidth={3} />;
           case 'flag': return <Flag size={20} strokeWidth={3} />;
           case 'hourglass': return <Hourglass size={20} strokeWidth={3} />;
+          case 'clock': return <Clock size={20} strokeWidth={3} />;
           case 'square': return <Square size={20} strokeWidth={3} />;
           case 'utensils': return <Utensils size={20} strokeWidth={3} />;
           case 'arrow-right': return <ArrowRight size={20} strokeWidth={3} />;
@@ -56,13 +60,19 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
       if (type === "NEW_TRIGGER_MAGNET") {
           const trigger = e.dataTransfer.getData("trigger") as RuleTrigger;
           
+          // Default durations: DELAY = 1s, TIMER = 2s
+          let defaultDuration = undefined;
+          if (trigger === RuleTrigger.DELAY) defaultDuration = 1000;
+          if (trigger === RuleTrigger.TIMER) defaultDuration = 2000;
+
           const newRule: Rule = {
               id: Math.random().toString(36).substr(2, 9),
               scope: activeScopeId,
               trigger: trigger,
               subjectId: '', 
               objectId: '', 
-              effects: [] // Start empty
+              effects: [], // Start empty
+              delayDuration: defaultDuration
           };
           onUpdateRules([...gameData.rules, newRule]);
       }
@@ -108,6 +118,18 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
       }
       else if (type === "NOT_STICKER" && slot === 'trigger_modifier') {
           onUpdateRules(gameData.rules.map(r => r.id === ruleId ? { ...r, invert: !r.invert } : r));
+      }
+  };
+
+  const handleSaveDuration = () => {
+      if (settingDurationForRuleId) {
+          onUpdateRules(gameData.rules.map(r => {
+              if (r.id === settingDurationForRuleId) {
+                  return { ...r, delayDuration: tempDuration * 1000 }; // Save in ms
+              }
+              return r;
+          }));
+          setSettingDurationForRuleId(null);
       }
   };
 
@@ -180,9 +202,12 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
       setRecordingForRuleId(null);
   };
 
-  const getTriggerLabel = (trigger: RuleTrigger, invert?: boolean) => {
+  const getTriggerLabel = (rule: Rule) => {
+      const { trigger, invert, delayDuration } = rule;
       if (trigger === RuleTrigger.START) return "GAME STARTS";
-      if (trigger === RuleTrigger.TIMER) return "EVERY 2 SEC";
+      // Dynamic Label for TIMER
+      if (trigger === RuleTrigger.TIMER) return `EVERY ${ (delayDuration || 2000) / 1000 }s`;
+      if (trigger === RuleTrigger.DELAY) return `WAIT ${ (delayDuration || 1000) / 1000 }s`;
       if (trigger === RuleTrigger.COLLISION) return invert ? "TOUCHING" : "TOUCHES";
       return "IS CLICKED";
   };
@@ -196,6 +221,36 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
               onSave={handleSoundSave}
               onClose={() => setRecordingForRuleId(null)}
           />
+      )}
+
+      {/* --- MODAL: DURATION PICKER --- */}
+      {settingDurationForRuleId && (
+          <div className="absolute inset-0 z-50 bg-black/50 flex items-center justify-center backdrop-blur-sm animate-in fade-in">
+              <div className="bg-white p-6 border-4 border-black rounded-xl shadow-2xl flex flex-col items-center gap-4 sketch-box w-80">
+                  <div className="w-16 h-16 bg-[#fb923c] border-2 border-black rounded-full flex items-center justify-center mb-2">
+                      <Clock size={40} className="text-white" />
+                  </div>
+                  <h3 className="font-bold text-2xl font-['Gochi_Hand']">HOW LONG?</h3>
+                  
+                  <div className="flex items-center gap-2 w-full justify-center">
+                      <input 
+                          type="number" 
+                          min="0.1"
+                          step="0.1"
+                          value={tempDuration}
+                          onChange={(e) => setTempDuration(parseFloat(e.target.value))}
+                          className="text-4xl font-bold w-24 text-center border-b-4 border-black bg-transparent outline-none p-1 font-['Space_Mono']"
+                          autoFocus
+                      />
+                      <span className="text-xl font-bold mt-2">seconds</span>
+                  </div>
+
+                  <div className="flex gap-4 mt-4 w-full">
+                      <button onClick={() => setSettingDurationForRuleId(null)} className="flex-1 sketch-btn py-2 bg-gray-100 font-bold hover:bg-gray-200">CANCEL</button>
+                      <button onClick={handleSaveDuration} className="flex-1 sketch-btn py-2 bg-[#fb923c] font-bold hover:bg-orange-300">SAVE</button>
+                  </div>
+              </div>
+          </div>
       )}
 
       {/* --- MODAL: POSITION PICKER --- */}
@@ -290,10 +345,20 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                             <div className="flex items-center gap-2 relative group">
                                 <div className="font-['Space_Mono'] font-bold text-sm text-gray-400">WHEN</div>
                                 <div 
-                                    className="relative group"
+                                    className="relative group cursor-pointer"
                                     onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('scale-110'); }}
                                     onDragLeave={(e) => { e.currentTarget.classList.remove('scale-110'); }}
                                     onDrop={(e) => { e.currentTarget.classList.remove('scale-110'); handleSlotDrop(e, rule.id, 'trigger_modifier'); }}
+                                    // CLICK HANDLER FOR DURATION MODAL (TIMER & DELAY)
+                                    onClick={() => { 
+                                        if(rule.trigger === RuleTrigger.DELAY || rule.trigger === RuleTrigger.TIMER) {
+                                            // Default to 2s for Timer, 1s for Delay if undefined
+                                            const defaultVal = rule.trigger === RuleTrigger.TIMER ? 2000 : 1000;
+                                            setTempDuration((rule.delayDuration || defaultVal) / 1000);
+                                            setSettingDurationForRuleId(rule.id);
+                                        } 
+                                    }}
+                                    title={rule.trigger === RuleTrigger.DELAY || rule.trigger === RuleTrigger.TIMER ? "Click to set duration" : ""}
                                 >
                                     <div className="w-12 h-12 border-2 border-black rounded-full flex items-center justify-center" style={{ backgroundColor: TRIGGER_MAGNETS.find(m => m.type === rule.trigger)?.color || '#fff' }}>
                                         {getIcon(TRIGGER_MAGNETS.find(m => m.type === rule.trigger)?.icon || 'help')}
@@ -302,7 +367,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                     
                                     {/* --- SOUND BUTTON HOVER --- */}
                                     <button 
-                                        onClick={() => setRecordingForRuleId(rule.id)}
+                                        onClick={(e) => { e.stopPropagation(); setRecordingForRuleId(rule.id); }}
                                         className={`absolute -bottom-2 -left-2 w-8 h-8 rounded-full border-2 border-black flex items-center justify-center shadow-sm hover:scale-110 transition-transform z-20 ${rule.soundId ? 'bg-green-400' : 'bg-gray-200 hover:bg-green-200'}`}
                                         title={rule.soundId ? "Change Sound" : "Add Sound Effect"}
                                     >
@@ -312,7 +377,20 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                 </div>
                             </div>
 
-                            {rule.trigger !== RuleTrigger.START && (
+                            {/* Subject Slot - Hidden for START, DELAY, and Global TIMER */}
+                            {rule.trigger !== RuleTrigger.START && rule.trigger !== RuleTrigger.DELAY && rule.trigger !== RuleTrigger.TIMER && (
+                                <div className={`w-16 h-16 border-2 border-dashed ${rule.subjectId ? 'border-black bg-white' : 'border-gray-300 bg-gray-100'} rounded-lg flex items-center justify-center overflow-hidden relative`} onDragOver={(e) => {e.preventDefault(); e.currentTarget.classList.add('bg-blue-100')}} onDragLeave={(e)=>e.currentTarget.classList.remove('bg-blue-100')} onDrop={(e)=>{e.currentTarget.classList.remove('bg-blue-100'); handleSlotDrop(e, rule.id, 'subject')}}>
+                                    {rule.subjectId ? <img src={getActorImage(rule.subjectId)} className="w-full h-full object-contain" /> : <span className="text-xs text-gray-400 font-bold">WHO?</span>}
+                                </div>
+                            )}
+                            
+                            {/* Special Subject Handling for TIMER (Allowed but optional in some designs, here we keep it hidden based on previous visual reqs for clean start/timers, or we can enable it. 
+                                User request "do same for starter: TIMER" implies customizing duration. 
+                                In current UI code `rule.trigger !== RuleTrigger.TIMER` hides the WHO slot. 
+                                If you want TIMER to apply to specific objects (e.g. "Every 2s [Enemy] -> Jump"), remove TIMER from this condition.
+                                For now, I will enable the WHO slot for TIMER as it's useful for "Every X sec [Actor] does [Effect]"
+                            */}
+                            {rule.trigger === RuleTrigger.TIMER && (
                                 <div className={`w-16 h-16 border-2 border-dashed ${rule.subjectId ? 'border-black bg-white' : 'border-gray-300 bg-gray-100'} rounded-lg flex items-center justify-center overflow-hidden relative`} onDragOver={(e) => {e.preventDefault(); e.currentTarget.classList.add('bg-blue-100')}} onDragLeave={(e)=>e.currentTarget.classList.remove('bg-blue-100')} onDrop={(e)=>{e.currentTarget.classList.remove('bg-blue-100'); handleSlotDrop(e, rule.id, 'subject')}}>
                                     {rule.subjectId ? <img src={getActorImage(rule.subjectId)} className="w-full h-full object-contain" /> : <span className="text-xs text-gray-400 font-bold">WHO?</span>}
                                 </div>
@@ -320,7 +398,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
 
                             <div className="font-['Space_Mono'] font-bold text-sm text-gray-400 flex flex-col items-center px-2">
                                 {rule.invert && <span className="text-red-500 font-bold text-lg animate-pulse">IS NOT</span>}
-                                <span>{getTriggerLabel(rule.trigger, rule.invert)}</span>
+                                <span>{getTriggerLabel(rule)}</span>
                             </div>
 
                             {rule.trigger === RuleTrigger.COLLISION && (
