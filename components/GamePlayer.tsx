@@ -93,6 +93,37 @@ const AnimatedSprite = ({
     );
 };
 
+// --- BACKGROUND ANIMATION COMPONENT (Simplified) ---
+const BackgroundLayer = ({ image, frames }: { image?: string, frames?: string[] }) => {
+    const [frameIdx, setFrameIdx] = useState(0);
+    
+    useEffect(() => {
+        if (frames && frames.length > 1) {
+            const interval = setInterval(() => {
+                setFrameIdx(curr => (curr + 1) % frames.length);
+            }, 200); // 5 FPS for BG
+            return () => clearInterval(interval);
+        } else {
+            setFrameIdx(0);
+        }
+    }, [frames]);
+
+    const current = (frames && frames.length > 0) ? frames[frameIdx] : image;
+
+    if (!current) return null;
+
+    return (
+        <div className="absolute inset-0 z-0">
+            <img 
+                src={current} 
+                className="w-full h-full object-cover" 
+                alt="Background"
+                style={{ imageRendering: 'pixelated' }} 
+            />
+        </div>
+    );
+};
+
 export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId, onExit, onNextScene }) => {
   const [activeSceneId, setActiveSceneId] = useState(currentSceneId);
   const [objects, setObjects] = useState<LevelObject[]>([]);
@@ -556,6 +587,9 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
       setDraggingId(null);
   };
 
+  // Get current Scene Background
+  const currentScene = gameData.scenes.find(s => s.id === activeSceneId);
+
   return (
     <div className="fixed inset-0 bg-[#facc15] z-50 flex items-center justify-center font-['Gochi_Hand'] overflow-hidden">
         
@@ -577,6 +611,12 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                     onMouseUp={handleMouseUp}
                     onMouseLeave={handleMouseUp}
                 >
+                    {/* BACKGROUND LAYER */}
+                    <BackgroundLayer 
+                        image={currentScene?.backgroundImage}
+                        frames={currentScene?.backgroundFrames}
+                    />
+
                     {/* OVERLAYS */}
                     {status === 'LOADING' && (
                         <div className="absolute inset-0 bg-white z-50 flex flex-col items-center justify-center">

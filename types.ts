@@ -85,6 +85,8 @@ export interface LevelObject {
 export interface Scene {
   id: string;
   objects: LevelObject[];
+  backgroundImage?: string; // Custom background (Base64)
+  backgroundFrames?: string[]; // Animated background
 }
 
 export interface GameData {

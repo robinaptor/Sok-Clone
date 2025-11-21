@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { GameData, LevelObject, Actor, Scene } from '../types';
 import { SCENE_WIDTH, SCENE_HEIGHT, ACTOR_SIZE } from '../constants';
-import { Trash2, Play, Save, Book, Lock, Unlock, X, MoveDiagonal } from 'lucide-react';
+import { Trash2, Play, Save, Book, Lock, Unlock, X, Image as ImageIcon, Paintbrush, Upload } from 'lucide-react';
 
 interface SceneEditorProps {
   gameData: GameData;
@@ -14,6 +14,8 @@ interface SceneEditorProps {
   onSave: () => void;
   onOpenRules: () => void;
   onChangeTitle: (title: string) => void;
+  onEditBackground: () => void; // NEW
+  onUpdateBackground: (bgImage: string | undefined) => void; // NEW for upload/clear
 }
 
 export const SceneEditor: React.FC<SceneEditorProps> = ({ 
@@ -26,16 +28,13 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
   onPlay,
   onSave,
   onOpenRules,
-  onChangeTitle
+  onChangeTitle,
+  onEditBackground,
+  onUpdateBackground
 }) => {
   const [isDragOver, setIsDragOver] = useState(false);
   const [scale, setScale] = useState(1);
   const [isLockMode, setIsLockMode] = useState(false); // Controls if new items are locked
-  
-  // Resizing State
-  const [resizingId, setResizingId] = useState<string | null>(null);
-  const resizeStartRef = useRef<{ x: number, startScale: number } | null>(null);
-
   const containerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
@@ -61,46 +60,11 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
     window.addEventListener('resize', handleResize);
     handleResize(); // Init
     
+    // Little delay to allow layout to settle
     setTimeout(handleResize, 100);
 
     return () => window.removeEventListener('resize', handleResize);
   }, []);
-
-  // --- Global Mouse Listeners for Resizing ---
-  useEffect(() => {
-      const handleGlobalMouseMove = (e: MouseEvent) => {
-          if (resizingId && resizeStartRef.current) {
-              const dx = e.clientX - resizeStartRef.current.x;
-              // 100px of mouse movement = 1.0 scale change
-              const scaleDiff = dx / 100; 
-              let newScale = resizeStartRef.current.startScale + scaleDiff;
-              
-              // Clamp scale
-              newScale = Math.max(0.5, Math.min(newScale, 5.0));
-
-              onUpdateCurrentScene(levelObjects.map(obj => 
-                  obj.id === resizingId ? { ...obj, scale: newScale } : obj
-              ));
-          }
-      };
-
-      const handleGlobalMouseUp = () => {
-          if (resizingId) {
-              setResizingId(null);
-              resizeStartRef.current = null;
-          }
-      };
-
-      if (resizingId) {
-          window.addEventListener('mousemove', handleGlobalMouseMove);
-          window.addEventListener('mouseup', handleGlobalMouseUp);
-      }
-
-      return () => {
-          window.removeEventListener('mousemove', handleGlobalMouseMove);
-          window.removeEventListener('mouseup', handleGlobalMouseUp);
-      };
-  }, [resizingId, levelObjects]);
 
   // Helper to find actor data
   const getActor = (actorId: string) => gameData.actors.find(a => a.id === actorId);
@@ -116,13 +80,6 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
     // We store the INTERNAL offset (e.g. 0-80px) directly
     e.dataTransfer.setData("dragOffsetX", offsetX.toString());
     e.dataTransfer.setData("dragOffsetY", offsetY.toString());
-  };
-
-  const handleResizeStart = (e: React.MouseEvent, objId: string, currentScale: number) => {
-      e.stopPropagation(); // Prevent drag start
-      e.preventDefault();
-      setResizingId(objId);
-      resizeStartRef.current = { x: e.clientX, startScale: currentScale || 1.0 };
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -172,7 +129,6 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
                 actorId,
                 x,
                 y,
-                scale: 1.0, // Default Scale
                 isLocked: isLockMode // Apply current lock state
             };
             onUpdateCurrentScene([...levelObjects, newObj]);
@@ -210,6 +166,34 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
           onUpdateCurrentScene(levelObjects.filter(obj => obj.id !== objId));
       }
   };
+
+  const handleBackgroundUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) {
+          const reader = new FileReader();
+          reader.onload = (evt) => {
+              if (evt.target?.result) {
+                  onUpdateBackground(evt.target.result as string);
+              }
+          };
+          reader.readAsDataURL(file);
+      }
+  };
+
+  // --- Background Animation Preview Logic ---
+  const [bgFrameIdx, setBgFrameIdx] = useState(0);
+  useEffect(() => {
+      if (currentScene.backgroundFrames && currentScene.backgroundFrames.length > 1) {
+          const interval = setInterval(() => {
+              setBgFrameIdx(curr => (curr + 1) % currentScene.backgroundFrames!.length);
+          }, 500); // Slow BG animation for preview
+          return () => clearInterval(interval);
+      } else {
+          setBgFrameIdx(0);
+      }
+  }, [currentScene.backgroundFrames]);
+
+  const currentBgImage = currentScene.backgroundFrames?.[bgFrameIdx] || currentScene.backgroundImage;
 
   return (
     <div className="flex w-full h-full overflow-hidden">
@@ -274,6 +258,18 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
                     transform: `scale(${scale})`
                 }}
               >
+                {/* BACKGROUND LAYER */}
+                <div className="absolute inset-0 pointer-events-none z-0">
+                    {currentBgImage && (
+                         <img 
+                            src={currentBgImage} 
+                            className="w-full h-full object-cover" 
+                            alt="Scene Background"
+                            style={{ imageRendering: 'pixelated' }}
+                        />
+                    )}
+                </div>
+
                 {/* TRASH BUTTON (Top Right of Canvas) */}
                 <div 
                     className="absolute -top-8 -right-8 w-16 h-16 z-50"
@@ -287,7 +283,7 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
                 {/* THE DROP ZONE */}
                 <div 
                     ref={containerRef}
-                    className={`w-full h-full relative overflow-hidden ${isDragOver ? 'bg-gray-50' : ''}`}
+                    className={`w-full h-full relative overflow-hidden z-10 ${isDragOver ? 'bg-blue-50/20' : ''}`}
                     onDragEnter={handleDragEnter}
                     onDragOver={handleDragOver}
                     onDragLeave={() => setIsDragOver(false)}
@@ -296,14 +292,10 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
                     {levelObjects.map((obj) => {
                         const actor = getActor(obj.actorId);
                         if (!actor) return null;
-                        
-                        const objScale = obj.scale || 1.0;
-                        const displaySize = ACTOR_SIZE * objScale;
-
                         return (
                             <div 
                                 key={obj.id}
-                                draggable={!resizingId} // Disable drag while resizing
+                                draggable="true"
                                 onClick={() => toggleObjectLock(obj.id)}
                                 onDragStart={(e) => {
                                     e.stopPropagation();
@@ -317,20 +309,18 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
                                     const sceneOffsetX = screenOffsetX / scale;
                                     const sceneOffsetY = screenOffsetY / scale;
 
-                                    // Set drag image logic
                                     if (e.dataTransfer.setDragImage) {
                                          e.dataTransfer.setDragImage(target, sceneOffsetX, sceneOffsetY);
                                     }
 
                                     handleItemDragStart(e, obj.id, sceneOffsetX, sceneOffsetY);
                                 }}
-                                className={`absolute group ${!obj.isLocked ? 'cursor-grab active:cursor-grabbing' : ''} hover:z-10`}
+                                className="absolute cursor-grab active:cursor-grabbing hover:scale-105 transition-transform hover:z-10 group"
                                 style={{
                                     left: obj.x,
                                     top: obj.y,
-                                    width: displaySize,
-                                    height: displaySize,
-                                    zIndex: resizingId === obj.id ? 20 : 'auto'
+                                    width: ACTOR_SIZE,
+                                    height: ACTOR_SIZE
                                 }}
                             >
                                 <img 
@@ -341,17 +331,6 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
                                 {obj.isLocked && (
                                     <div className="absolute top-0 right-0 bg-black/50 p-1 rounded-full">
                                         <Lock size={12} className="text-white" />
-                                    </div>
-                                )}
-
-                                {/* RESIZE HANDLE */}
-                                {!obj.isLocked && (
-                                    <div 
-                                        className="absolute -bottom-2 -right-2 w-6 h-6 bg-white border-2 border-black rounded-full flex items-center justify-center cursor-nwse-resize opacity-0 group-hover:opacity-100 hover:scale-110 transition-all shadow-sm z-20"
-                                        onMouseDown={(e) => handleResizeStart(e, obj.id, objScale)}
-                                        draggable="false"
-                                    >
-                                        <MoveDiagonal size={12}/>
                                     </div>
                                 )}
                             </div>
@@ -384,6 +363,32 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
                   <Book size={24} className="text-white/80" />
               </div>
           </button>
+
+          {/* SEPARATOR */}
+          <div className="w-full h-[2px] bg-black/10 my-2"></div>
+
+          {/* BACKGROUND TOOLS */}
+          <div className="flex flex-col gap-2 items-center">
+              <span className="text-[10px] font-bold text-gray-400">STAGE</span>
+              
+              <button onClick={onEditBackground} className="sketch-btn w-10 h-10 bg-white hover:bg-purple-50" title="Draw Background">
+                  <Paintbrush size={20} className="text-purple-500" />
+              </button>
+
+              <label className="sketch-btn w-10 h-10 bg-white hover:bg-blue-50 cursor-pointer" title="Upload Background">
+                  <Upload size={20} className="text-blue-500" />
+                  <input type="file" accept="image/*" className="hidden" onChange={handleBackgroundUpload}/>
+              </label>
+
+              {currentScene.backgroundImage && (
+                  <button onClick={() => onUpdateBackground(undefined)} className="sketch-btn w-10 h-10 bg-white hover:bg-red-50" title="Clear Background">
+                      <Trash2 size={20} className="text-red-500" />
+                  </button>
+              )}
+          </div>
+
+          {/* SEPARATOR */}
+          <div className="w-full h-[2px] bg-black/10 my-2"></div>
 
           {/* Lock Toggle (for placing items) */}
           <button 
