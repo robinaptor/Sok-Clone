@@ -240,7 +240,12 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                         >
                             <span className="text-[10px] font-bold mb-1">THAT ONE</span>
                             <div className="w-12 h-12 bg-white border border-black rounded flex items-center justify-center">
-                                {selectionModal.objectActorId ? <img src={getActorImage(selectionModal.objectActorId)} className="w-full h-full object-contain"/> : <div className="text-xs">?</div>}
+                                {/* Show ANY target for Click (since no objectId is defined yet), or objectId for Collision */}
+                                {selectionModal.objectActorId ? (
+                                    <img src={getActorImage(selectionModal.objectActorId)} className="w-full h-full object-contain"/> 
+                                ) : (
+                                    <div className="text-xs font-bold">ANY?</div>
+                                )}
                             </div>
                         </button>
                     </div>
@@ -446,7 +451,9 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                     
                                     // Determine Target Icon for visual feedback (Swap/Anim)
                                     const targetIcon = effect.target === 'OBJECT' ? rule.objectId : rule.subjectId;
-                                    const showTarget = (isSwap || isAnim) && rule.trigger === RuleTrigger.COLLISION;
+                                    
+                                    // Allow target selection for COLLISION and CLICK (for ANIM)
+                                    const showTarget = (isSwap || isAnim) && (rule.trigger === RuleTrigger.COLLISION || rule.trigger === RuleTrigger.CLICK);
 
                                     return (
                                         <div key={idx} className="relative group shrink-0">
@@ -454,11 +461,16 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                                 <span className={`text-[10px] font-bold ${textColor} uppercase`}>{label}</span>
                                                 
                                                 <div className="flex gap-1 items-center">
-                                                    {/* WHO TO SWAP/ANIM (Only for Collision) */}
+                                                    {/* WHO TO SWAP/ANIM (Only for Collision/Click) */}
                                                     {showTarget && (
                                                         <div className="flex flex-col items-center opacity-50 scale-75">
                                                             <div className="w-8 h-8 border border-black rounded bg-gray-100 overflow-hidden">
-                                                                {targetIcon ? <img src={getActorImage(targetIcon)} className="w-full h-full object-contain"/> : <span className="text-xs">?</span>}
+                                                                {/* If rule has no objectId (Click), assume SUBJECT for icon, or ? if OBJECT selected */}
+                                                                {effect.target === 'OBJECT' && !rule.objectId ? (
+                                                                    <div className="text-xs font-bold">ANY</div>
+                                                                ) : (
+                                                                    targetIcon ? <img src={getActorImage(targetIcon)} className="w-full h-full object-contain"/> : <span className="text-xs">?</span>
+                                                                )}
                                                             </div>
                                                             <ArrowRight size={12} className="mt-1"/>
                                                         </div>
@@ -471,7 +483,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                                             effectIndex: idx, 
                                                             type: 'ACTOR',
                                                             label: isSpawn ? "SPAWN WHAT?" : isSwap ? "SWAP WHO FOR WHAT?" : "PLAY WHICH ANIM?",
-                                                            allowTargetSelection: (isSwap || isAnim) && rule.trigger === RuleTrigger.COLLISION,
+                                                            allowTargetSelection: showTarget,
                                                             allowLoop: isAnim,
                                                             currentLoop: effect.isLoop || false,
                                                             currentTarget: effect.target || 'SUBJECT',

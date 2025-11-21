@@ -58,6 +58,7 @@ const AnimatedSprite = ({
             if (!lastTimeRef.current) lastTimeRef.current = time;
             const deltaTime = time - lastTimeRef.current;
             
+            // 100ms per frame (~10 FPS)
             if (deltaTime > 100) {
                 setFrameIdx(curr => {
                     const next = curr + 1;
@@ -123,7 +124,6 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
       try {
           await resumeAudioContext();
 
-          // Use direct conversion instead of fetch
           const arrayBuffer = base64ToArrayBuffer(sound.data);
           const audioBuffer = await audioCtxRef.current.decodeAudioData(arrayBuffer);
 
@@ -189,11 +189,9 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
       return gameData.rules.filter(r => r.scope === 'GLOBAL' || r.scope === activeSceneId);
   };
 
-  const executeRuleEffects = async (ruleId: string, effects: RuleEffect[], subjectObjId: string, objectObjId: string | null, soundId?: string) => {
-      
-      if (soundId) {
-          playSound(soundId);
-      }
+  // --- ASYNC RULE EXECUTOR ---
+  const executeRuleEffects = async (ruleId: string, effects: RuleEffect[], subjectObjId: string, objectObjId: string | null) => {
+      // NOTE: Sound is handled OUTSIDE this function to ensure immediate playback.
 
       let previousActionDuration = 0;
 
@@ -206,115 +204,126 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
               continue;
           }
 
-          const targetObjId = effect.target === 'OBJECT' && objectObjId ? objectObjId : subjectObjId;
+          // Target Resolution
+          // 1. Try direct object (Collision)
+          // 2. Try subject (Self)
+          // 3. If Remote Trigger (Click/Timer) AND Target is 'OBJECT', select ALL matching actors in scene
+          
+          let targets: string[] = [];
 
-          switch (effect.type) {
-              case InteractionType.WIN:
-                  setStatus('WON');
-                  previousActionDuration = 0;
-                  break;
-                  
-              case InteractionType.DESTROY_SUBJECT:
-                  setObjects(prev => prev.filter(o => o.id !== subjectObjId));
-                  if (subjectObjId === draggingId) setDraggingId(null);
-                  const subjectActor = objects.find(o => o.id === subjectObjId);
-                  if (subjectActor && getActor(subjectActor.actorId)?.id === 'hero') {
-                      setStatus('LOST');
-                  }
-                  previousActionDuration = 0;
-                  break;
+          if (effect.target === 'OBJECT' && !objectObjId && effect.spawnActorId) {
+              // Remote Trigger Case: Find all instances of 'spawnActorId' in the scene
+              targets = objects.filter(o => o.actorId === effect.spawnActorId).map(o => o.id);
+          } else {
+              // Standard Case
+              const targetId = effect.target === 'OBJECT' && objectObjId ? objectObjId : subjectObjId;
+              if (targetId) targets.push(targetId);
+          }
 
-               case InteractionType.DESTROY_OBJECT: 
-                  if (objectObjId) {
-                      setObjects(prev => prev.filter(o => o.id !== objectObjId));
-                  }
-                  previousActionDuration = 0;
-                  break;
+          for (const targetId of targets) {
+              switch (effect.type) {
+                  case InteractionType.WIN:
+                      setStatus('WON');
+                      previousActionDuration = 0;
+                      break;
+                      
+                  case InteractionType.DESTROY_SUBJECT:
+                      setObjects(prev => prev.filter(o => o.id !== subjectObjId));
+                      if (subjectObjId === draggingId) setDraggingId(null);
+                      const subjectActor = objects.find(o => o.id === subjectObjId);
+                      if (subjectActor && getActor(subjectActor.actorId)?.id === 'hero') {
+                          setStatus('LOST');
+                      }
+                      previousActionDuration = 0;
+                      break;
 
-               case InteractionType.CHANGE_SCENE:
-                  setStatus('TRANSITION');
-                  await new Promise(resolve => setTimeout(resolve, 1000)); 
-                  jumpToScene(effect.targetSceneId);
-                  previousActionDuration = 0;
-                  break;
-               
-               case InteractionType.SPAWN:
-                   if (effect.spawnActorId && effect.spawnX !== undefined && effect.spawnY !== undefined) {
-                       const newObj: LevelObject = {
-                           id: Math.random().toString(36).substr(2, 9),
-                           actorId: effect.spawnActorId,
-                           x: effect.spawnX,
-                           y: effect.spawnY,
-                           scale: 1.0,
-                           isLocked: false 
-                       };
-                       setObjects(prev => [...prev, newObj]);
-                   }
-                   previousActionDuration = 0;
-                   break;
-               
-               case InteractionType.SWAP:
-                    if (effect.spawnActorId) {
-                        setObjects(prev => prev.map(o => {
-                            if (o.id === targetObjId) {
-                                return { ...o, actorId: effect.spawnActorId!, activeAnimation: undefined };
-                            }
-                            return o;
-                        }));
-                    }
-                    previousActionDuration = 0;
-                    break;
+                   case InteractionType.DESTROY_OBJECT: 
+                      setObjects(prev => prev.filter(o => o.id !== targetId));
+                      previousActionDuration = 0;
+                      break;
 
-               case InteractionType.PLAY_ANIM:
-                   if (effect.spawnActorId) {
-                       const actor = getActor(effect.spawnActorId);
-                       if (actor && actor.frames && actor.frames.length > 1) {
-                           previousActionDuration = (actor.frames.length * 100) + 100; 
+                   case InteractionType.CHANGE_SCENE:
+                      setStatus('TRANSITION');
+                      await new Promise(resolve => setTimeout(resolve, 1000)); 
+                      jumpToScene(effect.targetSceneId);
+                      previousActionDuration = 0;
+                      break;
+                   
+                   case InteractionType.SPAWN:
+                       if (effect.spawnActorId && effect.spawnX !== undefined && effect.spawnY !== undefined) {
+                           const newObj: LevelObject = {
+                               id: Math.random().toString(36).substr(2, 9),
+                               actorId: effect.spawnActorId,
+                               x: effect.spawnX,
+                               y: effect.spawnY,
+                               scale: 1.0,
+                               isLocked: false 
+                           };
+                           setObjects(prev => [...prev, newObj]);
+                       }
+                       previousActionDuration = 0;
+                       break;
+                   
+                   case InteractionType.SWAP:
+                        if (effect.spawnActorId) {
+                            setObjects(prev => prev.map(o => {
+                                if (o.id === targetId) {
+                                    return { ...o, actorId: effect.spawnActorId!, activeAnimation: undefined };
+                                }
+                                return o;
+                            }));
+                        }
+                        previousActionDuration = 0;
+                        break;
+
+                   case InteractionType.PLAY_ANIM:
+                       if (effect.spawnActorId) {
+                           const actor = getActor(effect.spawnActorId);
+                           if (actor && actor.frames && actor.frames.length > 1) {
+                               previousActionDuration = (actor.frames.length * 100) + 100; 
+                           } else {
+                               previousActionDuration = 0;
+                           }
+
+                           setObjects(prev => prev.map(o => {
+                               if (o.id === targetId) {
+                                   return { 
+                                       ...o, 
+                                       activeAnimation: {
+                                           playingActorId: effect.spawnActorId!,
+                                           isLoop: !!effect.isLoop,
+                                           startTime: Date.now()
+                                       }
+                                   };
+                               }
+                               return o;
+                           }));
                        } else {
                            previousActionDuration = 0;
                        }
+                       break;
 
-                       setObjects(prev => prev.map(o => {
-                           if (o.id === targetObjId) {
-                               return { 
-                                   ...o, 
-                                   activeAnimation: {
-                                       playingActorId: effect.spawnActorId!,
-                                       isLoop: !!effect.isLoop,
-                                       startTime: Date.now()
-                                   }
-                               };
-                           }
-                           return o;
-                       }));
-                   } else {
-                       previousActionDuration = 0;
-                   }
-                   break;
-
-               case InteractionType.PUSH:
-                  setObjects(prev => prev.map(o => {
-                      if (o.id === targetObjId) {
-                          const angle = Math.random() * Math.PI * 2;
-                          const dist = 50;
-                          let nx = o.x + Math.cos(angle) * dist;
-                          let ny = o.y + Math.sin(angle) * dist;
-                          nx = Math.max(0, Math.min(nx, SCENE_WIDTH - ACTOR_SIZE));
-                          ny = Math.max(0, Math.min(ny, SCENE_HEIGHT - ACTOR_SIZE));
-                          return { ...o, x: nx, y: ny };
-                      }
-                      return o;
-                  }));
-                  previousActionDuration = 0;
-                  break;
-                
-               default:
-                  previousActionDuration = 0;
-                  break;
+                   case InteractionType.PUSH:
+                      setObjects(prev => prev.map(o => {
+                          if (o.id === targetId) {
+                              const angle = Math.random() * Math.PI * 2;
+                              const dist = 50;
+                              let nx = o.x + Math.cos(angle) * dist;
+                              let ny = o.y + Math.sin(angle) * dist;
+                              nx = Math.max(0, Math.min(nx, SCENE_WIDTH - ACTOR_SIZE));
+                              ny = Math.max(0, Math.min(ny, SCENE_HEIGHT - ACTOR_SIZE));
+                              return { ...o, x: nx, y: ny };
+                          }
+                          return o;
+                      }));
+                      previousActionDuration = 0;
+                      break;
+              }
           }
       }
   };
 
+  // --- TRIGGER: START & TIMER ---
   useEffect(() => {
       if (status !== 'PLAYING') return; 
 
@@ -325,7 +334,11 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
       startRules.forEach(rule => {
           if (!executingRuleIds.current.has(rule.id)) {
                executingRuleIds.current.add(rule.id); 
-               executeRuleEffects(rule.id, rule.effects, 'GLOBAL', null, rule.soundId);
+               
+               // Play sound SEPARATELY and IMMEDIATELY
+               if (rule.soundId) playSound(rule.soundId);
+               
+               executeRuleEffects(rule.id, rule.effects, 'GLOBAL', null);
           }
       });
 
@@ -338,9 +351,14 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                const targets = objects.filter(o => o.actorId === rule.subjectId);
                if (targets.length > 0) {
                    targets.forEach(t => {
-                        executeRuleEffects(rule.id, rule.effects, t.id, null, rule.soundId);
+                        // Play sound SEPARATELY and IMMEDIATELY
+                        if (rule.soundId) playSound(rule.soundId);
+                        executeRuleEffects(rule.id, rule.effects, t.id, null);
                    });
                } else if (!rule.subjectId) {
+                   // Global timer
+                   if (rule.soundId) playSound(rule.soundId);
+                   executeRuleEffects(rule.id, rule.effects, 'GLOBAL', null);
                }
           });
       }, 2000);
@@ -348,6 +366,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
       return () => clearInterval(interval);
   }, [activeSceneId, status, objects.length]); 
 
+  // AABB Collision
   const checkCollision = (
       rect1: {x: number, y: number, scale?: number}, 
       rect2: {x: number, y: number, scale?: number}, 
@@ -364,8 +383,9 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
       );
   };
 
+  // --- TRIGGER: CLICK ---
   const handleMouseDown = async (e: React.MouseEvent, obj: LevelObject) => {
-      resumeAudioContext(); // Resume on interaction
+      resumeAudioContext(); 
 
       if (status !== 'PLAYING') return;
       e.stopPropagation();
@@ -380,7 +400,12 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
           ruleTriggered = true;
           executingRuleIds.current.add(rule.id);
 
-          await executeRuleEffects(rule.id, rule.effects, obj.id, null, rule.soundId);
+          // Play sound SEPARATELY and IMMEDIATELY
+          if (rule.soundId) {
+              playSound(rule.soundId);
+          }
+
+          await executeRuleEffects(rule.id, rule.effects, obj.id, null);
           executingRuleIds.current.delete(rule.id);
       }
 
@@ -395,6 +420,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
       }
   };
 
+  // --- TRIGGER: MOVE & COLLISION ---
   const handleMouseMove = (e: React.MouseEvent) => {
       if (!draggingId || status !== 'PLAYING') return;
 
@@ -448,10 +474,13 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
 
                           if (!executingRuleIds.current.has(rule.id)) {
                               
-                              if (rule.effects.length > 0 || rule.soundId) {
+                              // Play sound SEPARATELY and IMMEDIATELY
+                              if (rule.soundId) playSound(rule.soundId);
+
+                              if (rule.effects.length > 0) {
                                   executingRuleIds.current.add(rule.id);
                                   
-                                  executeRuleEffects(rule.id, rule.effects, movingObj.id, other.id, rule.soundId)
+                                  executeRuleEffects(rule.id, rule.effects, movingObj.id, other.id)
                                       .then(() => {
                                           executingRuleIds.current.delete(rule.id);
                                       });

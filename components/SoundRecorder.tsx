@@ -22,7 +22,7 @@ const makeDistortionCurve = (amount: number) => {
   return curve;
 };
 
-// Simple WAV Encoder to save the processed AudioBuffer
+// Improved WAV Encoder
 const bufferToWav = (abuffer: AudioBuffer, len: number) => {
   let numOfChan = abuffer.numberOfChannels;
   let length = len * numOfChan * 2 + 44;
@@ -103,7 +103,8 @@ export const SoundRecorder: React.FC<SoundRecorderProps> = ({ onSave, onClose })
 
   // Init AudioContext
   useEffect(() => {
-    audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    audioContextRef.current = new AudioContextClass();
     return () => {
       if (audioContextRef.current) audioContextRef.current.close();
     };
@@ -134,14 +135,23 @@ export const SoundRecorder: React.FC<SoundRecorderProps> = ({ onSave, onClose })
       };
 
       mediaRecorder.onstop = async () => {
-        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' }); // Create initial blob
         setAudioBlob(blob);
         
         // Decode immediately for processing
-        const arrayBuffer = await blob.arrayBuffer();
-        if (audioContextRef.current) {
-            const decodedBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer);
-            setOriginalAudioBuffer(decodedBuffer);
+        try {
+            const arrayBuffer = await blob.arrayBuffer();
+            if (audioContextRef.current) {
+                // Ensure context is running
+                if (audioContextRef.current.state === 'suspended') {
+                    await audioContextRef.current.resume();
+                }
+                const decodedBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer);
+                setOriginalAudioBuffer(decodedBuffer);
+            }
+        } catch (err) {
+            console.error("Error decoding audio data:", err);
+            alert("Failed to process audio. Please try again.");
         }
 
         stopVisualizer();
@@ -191,47 +201,60 @@ export const SoundRecorder: React.FC<SoundRecorderProps> = ({ onSave, onClose })
       const file = e.target.files?.[0];
       if (file && audioContextRef.current) {
           setAudioBlob(file);
-          const arrayBuffer = await file.arrayBuffer();
-          const decodedBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer);
-          setOriginalAudioBuffer(decodedBuffer);
+          try {
+              const arrayBuffer = await file.arrayBuffer();
+              const decodedBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer);
+              setOriginalAudioBuffer(decodedBuffer);
+          } catch (e) {
+              alert("Could not decode audio file.");
+          }
       }
   };
 
   // --- PREVIEW WITH EFFECTS ---
-  const playPreview = () => {
+  const playPreview = async () => {
       if (!originalAudioBuffer || !audioContextRef.current) return;
 
-      // Stop existing
-      if (previewSourceRef.current) {
-          try { previewSourceRef.current.stop(); } catch(e){}
+      try {
+          // Resume context if needed
+          if (audioContextRef.current.state === 'suspended') {
+              await audioContextRef.current.resume();
+          }
+
+          // Stop existing
+          if (previewSourceRef.current) {
+              try { previewSourceRef.current.stop(); } catch(e){}
+          }
+
+          const ctx = audioContextRef.current;
+          const source = ctx.createBufferSource();
+          source.buffer = originalAudioBuffer;
+          
+          // 1. Pitch (Playback Rate)
+          source.playbackRate.value = pitch;
+
+          // 2. Distortion
+          const distortion = ctx.createWaveShaper();
+          distortion.curve = makeDistortionCurve(crunch);
+          distortion.oversample = '4x';
+
+          // 3. Volume
+          const gainNode = ctx.createGain();
+          gainNode.gain.value = volume;
+
+          // Connect Graph
+          source.connect(distortion);
+          distortion.connect(gainNode);
+          gainNode.connect(ctx.destination);
+
+          source.onended = () => setIsPlayingPreview(false);
+          
+          previewSourceRef.current = source;
+          source.start();
+          setIsPlayingPreview(true);
+      } catch (e) {
+          console.error("Playback failed:", e);
       }
-
-      const ctx = audioContextRef.current;
-      const source = ctx.createBufferSource();
-      source.buffer = originalAudioBuffer;
-      
-      // 1. Pitch (Playback Rate)
-      source.playbackRate.value = pitch;
-
-      // 2. Distortion
-      const distortion = ctx.createWaveShaper();
-      distortion.curve = makeDistortionCurve(crunch);
-      distortion.oversample = '4x';
-
-      // 3. Volume
-      const gainNode = ctx.createGain();
-      gainNode.gain.value = volume;
-
-      // Connect Graph
-      source.connect(distortion);
-      distortion.connect(gainNode);
-      gainNode.connect(ctx.destination);
-
-      source.onended = () => setIsPlayingPreview(false);
-      
-      previewSourceRef.current = source;
-      source.start();
-      setIsPlayingPreview(true);
   };
 
   const stopPreview = () => {
@@ -245,41 +268,46 @@ export const SoundRecorder: React.FC<SoundRecorderProps> = ({ onSave, onClose })
   const handleSave = async () => {
       if (!originalAudioBuffer) return;
 
-      // Offline Context to bake effects
-      // Calculate new duration based on pitch (faster speed = shorter duration)
-      const newDuration = originalAudioBuffer.duration / pitch;
-      const offlineCtx = new OfflineAudioContext(
-          originalAudioBuffer.numberOfChannels,
-          newDuration * originalAudioBuffer.sampleRate,
-          originalAudioBuffer.sampleRate
-      );
+      try {
+          // Offline Context to bake effects
+          const newDuration = originalAudioBuffer.duration / pitch;
+          const offlineCtx = new OfflineAudioContext(
+              originalAudioBuffer.numberOfChannels,
+              newDuration * originalAudioBuffer.sampleRate,
+              originalAudioBuffer.sampleRate
+          );
 
-      const source = offlineCtx.createBufferSource();
-      source.buffer = originalAudioBuffer;
-      source.playbackRate.value = pitch;
+          const source = offlineCtx.createBufferSource();
+          source.buffer = originalAudioBuffer;
+          source.playbackRate.value = pitch;
 
-      const distortion = offlineCtx.createWaveShaper();
-      distortion.curve = makeDistortionCurve(crunch);
-      distortion.oversample = '4x';
+          const distortion = offlineCtx.createWaveShaper();
+          distortion.curve = makeDistortionCurve(crunch);
+          distortion.oversample = '4x';
 
-      const gainNode = offlineCtx.createGain();
-      gainNode.gain.value = volume;
+          const gainNode = offlineCtx.createGain();
+          gainNode.gain.value = volume;
 
-      source.connect(distortion);
-      distortion.connect(gainNode);
-      gainNode.connect(offlineCtx.destination);
+          source.connect(distortion);
+          distortion.connect(gainNode);
+          gainNode.connect(offlineCtx.destination);
 
-      source.start();
+          source.start();
 
-      const renderedBuffer = await offlineCtx.startRendering();
-      const wavBlob = bufferToWav(renderedBuffer, renderedBuffer.length);
+          const renderedBuffer = await offlineCtx.startRendering();
+          const wavBlob = bufferToWav(renderedBuffer, renderedBuffer.length);
 
-      const reader = new FileReader();
-      reader.readAsDataURL(wavBlob);
-      reader.onloadend = () => {
-          const base64 = reader.result as string;
-          onSave(base64);
-      };
+          // Create base64 string
+          const reader = new FileReader();
+          reader.readAsDataURL(wavBlob);
+          reader.onloadend = () => {
+              const base64 = reader.result as string;
+              onSave(base64);
+          };
+      } catch (e) {
+          console.error("Failed to process/save audio:", e);
+          alert("Error saving audio. Try again.");
+      }
   };
 
   // --- PRESETS ---
