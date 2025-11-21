@@ -1,3 +1,5 @@
+
+
 export enum ToolMode {
   PROJECTS = 'PROJECTS', // New Home Screen
   DRAW = 'DRAW',
@@ -47,8 +49,8 @@ export interface RuleEffect {
   spawnActorId?: string; // Represents the Target Actor for the effect
   spawnX?: number;
   spawnY?: number;
-  target?: 'SUBJECT' | 'OBJECT'; // Who does this apply to?
-  isLoop?: boolean; // NEW: For ANIM effect
+  target?: 'SUBJECT' | 'OBJECT'; // Determines if the effect applies to the subject or object
+  isLoop?: boolean; // For animations
 }
 
 export interface Rule {
@@ -62,8 +64,8 @@ export interface Rule {
   soundId?: string; // NEW: Audio to play when triggered
 }
 
-export interface AnimationState {
-  playingActorId: string; // The actor whose frames we are using
+export interface ActiveAnimation {
+  playingActorId: string;
   isLoop: boolean;
   startTime: number;
 }
@@ -76,7 +78,7 @@ export interface LevelObject {
   isLocked?: boolean; // If true, cannot be dragged in Game Mode
   isEphemeral?: boolean; // For one-shot animations
   creationTime?: number;
-  activeAnimation?: AnimationState; // NEW: Tracks current animation status
+  activeAnimation?: ActiveAnimation;
 }
 
 export interface Scene {

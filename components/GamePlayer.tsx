@@ -16,51 +16,61 @@ const AnimatedSprite = ({
     playingActor, 
     isLooping, 
     isEphemeral,
-    onFinish 
+    onFinish,
+    triggerTime 
 }: { 
     baseActor: Actor, 
     playingActor?: Actor, 
     isLooping?: boolean, 
     isEphemeral?: boolean,
-    onFinish: () => void
+    onFinish: () => void,
+    triggerTime?: number
 }) => {
     const [frameIdx, setFrameIdx] = useState(0);
+    const requestRef = useRef<number>(0);
+    const lastTimeRef = useRef<number>(0);
 
     // If an animation is active, use its frames. Otherwise use baseActor's first frame.
     const activeFrames = playingActor?.frames && playingActor.frames.length > 0 ? playingActor.frames : [baseActor.imageData];
     const isPlaying = !!playingActor;
 
+    // Reset on new animation trigger (based on timestamp change)
     useEffect(() => {
         setFrameIdx(0);
-    }, [playingActor]);
+        lastTimeRef.current = 0; 
+    }, [playingActor?.id, triggerTime]);
 
+    // Animation Loop
     useEffect(() => {
         if (!isPlaying || activeFrames.length <= 1) return;
         
-        const interval = setInterval(() => {
-            setFrameIdx(curr => {
-                const next = curr + 1;
-                if (next >= activeFrames.length) {
-                    // Animation Finished
-                    if (isLooping) {
-                        return 0; // Loop
-                    } else {
-                        // One Shot
-                        clearInterval(interval);
-                        onFinish(); // Notify parent to stop playing
-                        return curr; // Stay on last frame briefly
+        const animate = (time: number) => {
+            if (!lastTimeRef.current) lastTimeRef.current = time;
+            const deltaTime = time - lastTimeRef.current;
+            
+            // 100ms per frame (~10 FPS) - Slower as requested
+            if (deltaTime > 100) {
+                setFrameIdx(curr => {
+                    const next = curr + 1;
+                    if (next >= activeFrames.length) {
+                        if (isLooping) {
+                            return 0; 
+                        } else {
+                            // STAY ON LAST FRAME: Do NOT call onFinish()
+                            return curr; 
+                        }
                     }
-                }
-                return next;
-            });
-        }, 125); // 8 FPS
-        
-        return () => clearInterval(interval);
-    }, [activeFrames, isPlaying, isLooping, onFinish]);
+                    return next;
+                });
+                lastTimeRef.current = time;
+            }
+            requestRef.current = requestAnimationFrame(animate);
+        };
 
-    // Display Logic:
-    // If playing, show active frame.
-    // If not playing, show baseActor frame 0 (Static).
+        requestRef.current = requestAnimationFrame(animate);
+        return () => cancelAnimationFrame(requestRef.current);
+    }, [activeFrames.length, isPlaying, isLooping]);
+
     const displayImage = isPlaying ? activeFrames[frameIdx] : (baseActor.frames?.[0] || baseActor.imageData);
 
     return (
@@ -105,7 +115,6 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
   useEffect(() => {
       const ephemeralObjs = objects.filter(o => o.isEphemeral);
       if (ephemeralObjs.length > 0) {
-          // Only cleanup if they are NOT playing an animation loop, OR if it's a visual FX
           const timer = setTimeout(() => {
               setObjects(prev => prev.filter(o => !o.isEphemeral));
           }, 1000); 
@@ -160,41 +169,38 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
   };
 
   // --- ASYNC RULE EXECUTOR ---
-  // subjectObjId = The Primary Actor (Mover / Clicker)
-  // objectObjId = The Secondary Actor (Touched) - CAN BE NULL if click/start
   const executeRuleEffects = async (ruleId: string, effects: RuleEffect[], subjectObjId: string, objectObjId: string | null, soundId?: string) => {
       
-      // Play Sound Immediately if exists
       if (soundId) playSound(soundId);
 
       for (const effect of effects) {
           // Sequence Delay
           if (effect.type === InteractionType.THEN) {
-              await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+              await new Promise(resolve => setTimeout(resolve, 1000));
               continue;
           }
 
           // Determine Target ID for SWAP/ANIM based on effect configuration
           const targetObjId = effect.target === 'OBJECT' && objectObjId ? objectObjId : subjectObjId;
 
-          // State Changes (Can be async or instant)
+          // State Changes
           switch (effect.type) {
               case InteractionType.WIN:
                   setStatus('WON');
                   break;
-              case InteractionType.DESTROY_SUBJECT: // The one who triggered it
+              case InteractionType.DESTROY_SUBJECT:
                   setStatus('LOST'); 
                   break;
                case InteractionType.DESTROY_OBJECT: 
-                  // Handled in collision logic mostly
+                  // Handled in collision logic
                   break;
                case InteractionType.CHANGE_SCENE:
                   setStatus('TRANSITION');
-                  await new Promise(resolve => setTimeout(resolve, 1000)); // Wait a bit for visual
+                  await new Promise(resolve => setTimeout(resolve, 1000)); 
                   jumpToScene(effect.targetSceneId);
                   break;
                
-               // --- NEW: SPAWN ---
+               // --- SPAWN ---
                case InteractionType.SPAWN:
                    if (effect.spawnActorId && effect.spawnX !== undefined && effect.spawnY !== undefined) {
                        const newObj: LevelObject = {
@@ -208,8 +214,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                    }
                    break;
                
-               // --- NEW: SWAP (Transform) ---
-               // Now respects effect.target (Subject vs Object)
+               // --- SWAP ---
                case InteractionType.SWAP:
                     if (effect.spawnActorId) {
                         setObjects(prev => prev.map(o => {
@@ -221,7 +226,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                     }
                     break;
 
-               // --- NEW: ANIM (Play Visual IN PLACE) ---
+               // --- ANIM (Play Visual IN PLACE) ---
                case InteractionType.PLAY_ANIM:
                    if (effect.spawnActorId) {
                        setObjects(prev => prev.map(o => {
@@ -241,7 +246,6 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                    break;
 
                case InteractionType.PUSH:
-                  // "Random Push" for automated things (Timer/Start)
                   setObjects(prev => prev.map(o => {
                       if (o.id === targetObjId) {
                           const angle = Math.random() * Math.PI * 2;
@@ -269,7 +273,6 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
       const startRules = activeRules.filter(r => r.trigger === RuleTrigger.START);
       
       startRules.forEach(rule => {
-          // We ensure START rules run exactly once per reset by using the ref
           if (!executingRuleIds.current.has(rule.id)) {
                executingRuleIds.current.add(rule.id); 
                executeRuleEffects(rule.id, rule.effects, 'GLOBAL', null, rule.soundId);
@@ -292,19 +295,19 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                    // Allow global timers
                }
           });
-      }, 2000); // Every 2 seconds
+      }, 2000);
 
       return () => clearInterval(interval);
   }, [activeSceneId, status, objects.length]); 
 
-  // AABB Collision
-  const checkCollision = (rect1: {x: number, y: number}, rect2: {x: number, y: number}) => {
+  // AABB Collision with Buffer (Hysteresis)
+  const checkCollision = (rect1: {x: number, y: number}, rect2: {x: number, y: number}, buffer = 0) => {
       const size = ACTOR_SIZE; 
       return (
-          rect1.x < rect2.x + size &&
-          rect1.x + size > rect2.x &&
-          rect1.y < rect2.y + size &&
-          rect1.y + size > rect2.y
+          rect1.x < rect2.x + size + buffer &&
+          rect1.x + size + buffer > rect2.x &&
+          rect1.y < rect2.y + size + buffer &&
+          rect1.y + size + buffer > rect2.y
       );
   };
 
@@ -313,13 +316,12 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
       if (status !== 'PLAYING') return;
       e.stopPropagation();
 
-      // 1. Check Click Rules
       const activeRules = getActiveRules();
       const clickRules = activeRules.filter(r => r.trigger === RuleTrigger.CLICK && r.subjectId === obj.actorId);
       
       let ruleTriggered = false;
       for (const rule of clickRules) {
-          if (executingRuleIds.current.has(rule.id)) continue; // Don't re-trigger if running
+          if (executingRuleIds.current.has(rule.id)) continue; 
 
           ruleTriggered = true;
           executingRuleIds.current.add(rule.id);
@@ -364,22 +366,23 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
       let allowMove = true;
       let idsToDestroy: string[] = [];
 
-      // Check against all other objects
       for (const other of objects) {
           if (other.id === draggingId) continue;
 
-          const isTouching = checkCollision({x: newX, y: newY}, other);
+          // 1. Strict Collision for ENTRY
+          const isStrictTouching = checkCollision({x: newX, y: newY}, other, 0);
           
-          // Collision Pair Key (Order independent)
+          // 2. Loose Collision for EXIT (Hysteresis of 5px)
+          const isLooseTouching = checkCollision({x: newX, y: newY}, other, 5);
+          
           const pairKey = [movingObj.id, other.id].sort().join(':');
 
-          if (isTouching) {
+          if (isStrictTouching) {
               
               // ONLY TRIGGER if not already colliding (ON ENTER)
               if (!activeCollisions.current.has(pairKey)) {
                   activeCollisions.current.add(pairKey);
 
-                  // --- FIRE COLLISION RULES ---
                   const activeRules = getActiveRules();
                   const rules = activeRules.filter(r => 
                     r.trigger === RuleTrigger.COLLISION &&
@@ -388,10 +391,9 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                   );
 
                   for (const rule of rules) {
-                      const shouldTrigger = rule.invert ? false : true; // Normal collision
+                      const shouldTrigger = rule.invert ? false : true; 
                       
                       if (shouldTrigger) {
-                          // ... Logic ...
                           const hasBlock = rule.effects.some(e => e.type === InteractionType.BLOCK);
                           const hasPush = rule.effects.some(e => e.type === InteractionType.PUSH);
 
@@ -400,15 +402,14 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                           if (!executingRuleIds.current.has(rule.id)) {
                               const hasStateEffects = rule.effects.some(e => 
                                   e.type === InteractionType.WIN || 
-                                  e.type === InteractionType.DESTROY_OBJECT ||
-                                  e.type === InteractionType.DESTROY_SUBJECT ||
+                                  e.type === InteractionType.DESTROY_OBJECT || 
+                                  e.type === InteractionType.DESTROY_SUBJECT || 
                                   e.type === InteractionType.CHANGE_SCENE ||
                                   e.type === InteractionType.SPAWN ||
                                   e.type === InteractionType.SWAP ||
                                   e.type === InteractionType.PLAY_ANIM
                               );
 
-                              // Always try to play sound on collision
                               if (rule.soundId && !executingRuleIds.current.has(rule.id)) {
                                    playSound(rule.soundId);
                               }
@@ -421,7 +422,6 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                                       if(e.type === InteractionType.DESTROY_SUBJECT) idsToDestroy.push(movingObj.id);
                                   });
 
-                                  // Pass BOTH objects: movingObj (Subject) and other (Object)
                                   executeRuleEffects(rule.id, rule.effects, movingObj.id, other.id, rule.soundId)
                                       .then(() => {
                                           executingRuleIds.current.delete(rule.id);
@@ -432,8 +432,8 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                   }
               } 
               
-          } else {
-              // Not touching
+          } else if (!isLooseTouching) {
+              // Only reset collision if we are firmly OUTSIDE the buffer zone
               if (activeCollisions.current.has(pairKey)) {
                   activeCollisions.current.delete(pairKey); // ON EXIT
               }
@@ -509,6 +509,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                                         isLooping={obj.activeAnimation?.isLoop} 
                                         isEphemeral={obj.isEphemeral}
                                         onFinish={() => handleAnimationFinish(obj.id)}
+                                        triggerTime={obj.activeAnimation?.startTime}
                                     />
                                 </div>
                             );
