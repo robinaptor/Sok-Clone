@@ -27,8 +27,9 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
   const activeCollisions = useRef<Set<string>>(new Set());
 
   // Track timeouts and intervals for cleanup
-  const activeTimeouts = useRef<Set<NodeJS.Timeout>>(new Set());
-  const activeIntervals = useRef<Set<NodeJS.Timeout>>(new Set());
+  // FIX: Use 'number' instead of NodeJS.Timeout for browser compatibility
+  const activeTimeouts = useRef<Set<number>>(new Set());
+  const activeIntervals = useRef<Set<number>>(new Set());
 
   // Init or Reset
   useEffect(() => { resetGame(currentSceneId); }, [currentSceneId]);
@@ -167,7 +168,8 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
           if (!executingRuleIds.current.has(rule.id)) {
               executingRuleIds.current.add(rule.id); 
               
-              const timeoutId = setTimeout(() => {
+              // Use window.setTimeout to ensure it returns number
+              const timeoutId = window.setTimeout(() => {
                   if(status === 'PLAYING') {
                       if (rule.soundId) playSound(rule.soundId);
                       executeRuleEffects(rule.id, rule.effects, 'GLOBAL', 'GLOBAL', rule.soundId);
@@ -185,7 +187,8 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
           // Use custom duration or default 2000ms
           const intervalTime = rule.delayDuration || 2000;
           
-          const intervalId = setInterval(() => {
+          // Use window.setInterval to ensure it returns number
+          const intervalId = window.setInterval(() => {
               if (status !== 'PLAYING') return;
               
               // Find targets if specified, else global
