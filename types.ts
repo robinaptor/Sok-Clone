@@ -1,3 +1,5 @@
+
+
 export enum ToolMode {
   PROJECTS = 'PROJECTS', // New Home Screen
   DRAW = 'DRAW',
@@ -73,11 +75,11 @@ export interface LevelObject {
   actorId: string;
   x: number;
   y: number;
-  scale?: number; // NEW: Resize capability (default 1.0)
   isLocked?: boolean; // If true, cannot be dragged in Game Mode
   isEphemeral?: boolean; // For one-shot animations
   creationTime?: number;
   activeAnimation?: ActiveAnimation;
+  scale?: number; // Added for visual scaling
 }
 
 export interface Scene {

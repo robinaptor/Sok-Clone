@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { GameData, Rule, InteractionType, RuleTrigger, Sound } from '../types';
 import { TRIGGER_MAGNETS, EFFECT_MAGNETS, SCENE_WIDTH, SCENE_HEIGHT } from '../constants';
@@ -100,9 +101,14 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
       else if (type === "NEW_EFFECT_MAGNET") {
           const interaction = e.dataTransfer.getData("interaction") as InteractionType;
           if (slot === 'effects') {
+             // Default target logic: 
+             // EAT defaults to OBJECT (eat the other thing)
+             // DIE defaults to SUBJECT (I die) - but effectively just ends game
+             const defaultTarget = interaction === InteractionType.DESTROY_OBJECT ? 'OBJECT' : 'SUBJECT';
+             
              onUpdateRules(gameData.rules.map(r => {
                  if (r.id === ruleId) {
-                     return { ...r, effects: [...r.effects, { type: interaction, target: 'SUBJECT' }] };
+                     return { ...r, effects: [...r.effects, { type: interaction, target: defaultTarget }] };
                  }
                  return r;
              }));
@@ -139,13 +145,25 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
       onUpdateRules(gameData.rules.map(r => {
           if (r.id === ruleId) {
               const newEffects = [...r.effects];
+              
+              // Handle generic ACTOR selection (for Spawn, Swap, Anim)
               if (type === 'ACTOR') {
-                  newEffects[effectIndex] = { 
-                      ...newEffects[effectIndex], 
-                      spawnActorId: selectedId,
-                      target: currentTarget || 'SUBJECT',
-                      isLoop: currentLoop
-                  };
+                  // IF EAT: We are saving the target preference AND the actor ID (for remote destroy)
+                  if (newEffects[effectIndex].type === InteractionType.DESTROY_OBJECT) {
+                       newEffects[effectIndex] = {
+                           ...newEffects[effectIndex],
+                           target: currentTarget || 'OBJECT', 
+                           spawnActorId: selectedId // Used to filter WHICH object dies if target='OBJECT'
+                       };
+                  } else {
+                      // Standard Spawn/Swap/Anim
+                      newEffects[effectIndex] = { 
+                          ...newEffects[effectIndex], 
+                          spawnActorId: selectedId,
+                          target: currentTarget || 'SUBJECT',
+                          isLoop: currentLoop
+                      };
+                  }
               } else {
                   newEffects[effectIndex] = { ...newEffects[effectIndex], targetSceneId: selectedId };
               }
@@ -219,7 +237,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                     <button onClick={() => setSelectionModal(null)} className="hover:bg-red-100 rounded-full p-1"><X size={24}/></button>
                 </div>
 
-                {/* TARGET SELECTION TOGGLE (FOR SWAP / ANIM) */}
+                {/* TARGET SELECTION TOGGLE */}
                 {selectionModal.allowTargetSelection && (
                     <div className="flex gap-4 justify-center py-2 bg-gray-100 rounded-lg border-2 border-black/10">
                         <button 
@@ -240,11 +258,10 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                         >
                             <span className="text-[10px] font-bold mb-1">THAT ONE</span>
                             <div className="w-12 h-12 bg-white border border-black rounded flex items-center justify-center">
-                                {/* Show ANY target for Click (since no objectId is defined yet), or objectId for Collision */}
                                 {selectionModal.objectActorId ? (
                                     <img src={getActorImage(selectionModal.objectActorId)} className="w-full h-full object-contain"/> 
                                 ) : (
-                                    <div className="text-xs font-bold">ANY?</div>
+                                    <div className="text-xs font-bold">ANY</div>
                                 )}
                             </div>
                         </button>
@@ -265,9 +282,14 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                 )}
                 
                 {/* GRID SELECTION */}
-                <div className="flex-1 overflow-y-auto p-2 grid grid-cols-3 gap-4">
-                    {selectionModal.type === 'ACTOR' ? (
-                        gameData.actors.map(actor => (
+                {/* Always show grid for remote selection (Target=Object) OR for standard actor selection */}
+                {selectionModal.type === 'ACTOR' && (
+                    <div className="flex-1 overflow-y-auto p-2 grid grid-cols-3 gap-4">
+                        {/* HIDE ACTOR GRID IF SELECTING FOR EAT (Just Target) BUT SHOW IF REMOTE */}
+                        {/* Actually, we want to show it if label is "DESTROY WHICH TYPE" (Remote Eat) OR standard selections */}
+                        {/* Standard behavior for everything else */}
+                        
+                        {gameData.actors.map(actor => (
                             <button 
                                 key={actor.id}
                                 onClick={() => handleSelectionSave(actor.id)}
@@ -276,9 +298,13 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                 <img src={actor.imageData} className="w-full h-full object-contain" />
                                 <span className="text-xs font-bold truncate w-full text-center">{actor.name}</span>
                             </button>
-                        ))
-                    ) : (
-                        gameData.scenes.map((scene, idx) => (
+                        ))}
+                    </div>
+                )}
+
+                {selectionModal.type === 'SCENE' && (
+                    <div className="flex-1 overflow-y-auto p-2 grid grid-cols-3 gap-4">
+                        {gameData.scenes.map((scene, idx) => (
                             <button 
                                 key={scene.id}
                                 onClick={() => handleSelectionSave(scene.id)}
@@ -287,9 +313,9 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                 <div className="text-4xl font-bold text-gray-400">#{idx + 1}</div>
                                 <span className="text-xs font-bold truncate w-full text-center">SCENE {idx + 1}</span>
                             </button>
-                        ))
-                    )}
-                </div>
+                        ))}
+                    </div>
+                )}
             </div>
         </div>
       )}
@@ -434,26 +460,37 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
 
                             {rule.effects.map((effect, idx) => {
                                 
-                                // --- GENERIC ACTOR SELECT CARD (SPAWN, SWAP, ANIM) ---
-                                if (effect.type === InteractionType.SPAWN || effect.type === InteractionType.SWAP || effect.type === InteractionType.PLAY_ANIM) {
+                                // --- GENERIC ACTOR SELECT CARD (SPAWN, SWAP, ANIM, EAT) ---
+                                // Added EAT here to make it configurable
+                                if (effect.type === InteractionType.SPAWN || effect.type === InteractionType.SWAP || effect.type === InteractionType.PLAY_ANIM || effect.type === InteractionType.DESTROY_OBJECT) {
                                     
                                     const isSpawn = effect.type === InteractionType.SPAWN;
                                     const isSwap = effect.type === InteractionType.SWAP;
                                     const isAnim = effect.type === InteractionType.PLAY_ANIM;
+                                    const isEat = effect.type === InteractionType.DESTROY_OBJECT;
 
-                                    const label = isSpawn ? "SPAWN" : isSwap ? "SWAP" : "ANIM";
+                                    let label = isSpawn ? "SPAWN" : isSwap ? "SWAP" : "ANIM";
+                                    if (isEat) label = "EAT";
+
                                     const colorClass = isSpawn ? "purple" : isSwap ? "pink" : "fuchsia";
-                                    const bgColor = isSpawn ? "bg-purple-100" : isSwap ? "bg-pink-100" : "bg-fuchsia-100";
-                                    const borderColor = isSpawn ? "border-purple-500" : isSwap ? "border-pink-500" : "border-fuchsia-500";
-                                    const textColor = isSpawn ? "text-purple-600" : isSwap ? "text-pink-600" : "text-fuchsia-600";
+                                    let bgColor = isSpawn ? "bg-purple-100" : isSwap ? "bg-pink-100" : "bg-fuchsia-100";
+                                    let borderColor = isSpawn ? "border-purple-500" : isSwap ? "border-pink-500" : "border-fuchsia-500";
+                                    let textColor = isSpawn ? "text-purple-600" : isSwap ? "text-pink-600" : "text-fuchsia-600";
                                     
-                                    const Icon = isSpawn ? Sparkles : isSwap ? RefreshCw : Clapperboard;
+                                    if(isEat) {
+                                        bgColor = "bg-red-100";
+                                        borderColor = "border-red-500";
+                                        textColor = "text-red-600";
+                                    }
+
+                                    let Icon = isSpawn ? Sparkles : isSwap ? RefreshCw : Clapperboard;
+                                    if(isEat) Icon = Utensils;
                                     
-                                    // Determine Target Icon for visual feedback (Swap/Anim)
+                                    // Determine Target Icon for visual feedback (Swap/Anim/Eat)
                                     const targetIcon = effect.target === 'OBJECT' ? rule.objectId : rule.subjectId;
                                     
-                                    // Allow target selection for COLLISION and CLICK (for ANIM)
-                                    const showTarget = (isSwap || isAnim) && (rule.trigger === RuleTrigger.COLLISION || rule.trigger === RuleTrigger.CLICK);
+                                    // Allow target selection for COLLISION and CLICK (for ANIM/EAT)
+                                    const showTarget = (isSwap || isAnim || isEat) && (rule.trigger === RuleTrigger.COLLISION || rule.trigger === RuleTrigger.CLICK);
 
                                     return (
                                         <div key={idx} className="relative group shrink-0">
@@ -461,45 +498,90 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                                 <span className={`text-[10px] font-bold ${textColor} uppercase`}>{label}</span>
                                                 
                                                 <div className="flex gap-1 items-center">
-                                                    {/* WHO TO SWAP/ANIM (Only for Collision/Click) */}
+                                                    {/* TARGET SELECTOR */}
                                                     {showTarget && (
-                                                        <div className="flex flex-col items-center opacity-50 scale-75">
-                                                            <div className="w-8 h-8 border border-black rounded bg-gray-100 overflow-hidden">
-                                                                {/* If rule has no objectId (Click), assume SUBJECT for icon, or ? if OBJECT selected */}
+                                                        <div className="flex flex-col items-center scale-90">
+                                                            <button 
+                                                                onClick={() => setSelectionModal({ 
+                                                                    ruleId: rule.id, 
+                                                                    effectIndex: idx, 
+                                                                    type: 'ACTOR',
+                                                                    label: `WHO TO ${label}?`,
+                                                                    allowTargetSelection: true,
+                                                                    currentTarget: effect.target || 'OBJECT',
+                                                                    subjectActorId: rule.subjectId,
+                                                                    objectActorId: rule.objectId
+                                                                })}
+                                                                className="w-8 h-8 border border-black rounded bg-gray-100 overflow-hidden flex items-center justify-center hover:scale-110 transition-transform"
+                                                                title="Change Target"
+                                                            >
+                                                                {/* Show selected target icon, or ANY if remote trigger */}
                                                                 {effect.target === 'OBJECT' && !rule.objectId ? (
-                                                                    <div className="text-xs font-bold">ANY</div>
+                                                                    <div className="text-[10px] font-bold">ANY</div>
                                                                 ) : (
                                                                     targetIcon ? <img src={getActorImage(targetIcon)} className="w-full h-full object-contain"/> : <span className="text-xs">?</span>
                                                                 )}
-                                                            </div>
-                                                            <ArrowRight size={12} className="mt-1"/>
+                                                            </button>
+                                                            {/* Only show arrow if we also have a Spawn Actor (for Spawn/Swap/Anim) */}
+                                                            {(isSpawn || isSwap || isAnim) && <ArrowRight size={12} className="mt-1"/>}
                                                         </div>
                                                     )}
 
-                                                    {/* Actor Selector Button */}
-                                                    <button 
-                                                        onClick={() => setSelectionModal({ 
-                                                            ruleId: rule.id, 
-                                                            effectIndex: idx, 
-                                                            type: 'ACTOR',
-                                                            label: isSpawn ? "SPAWN WHAT?" : isSwap ? "SWAP WHO FOR WHAT?" : "PLAY WHICH ANIM?",
-                                                            allowTargetSelection: showTarget,
-                                                            allowLoop: isAnim,
-                                                            currentLoop: effect.isLoop || false,
-                                                            currentTarget: effect.target || 'SUBJECT',
-                                                            subjectActorId: rule.subjectId,
-                                                            objectActorId: rule.objectId
-                                                        })}
-                                                        className={`w-10 h-10 border-2 border-black rounded ${bgColor} hover:brightness-95 flex items-center justify-center transition-transform hover:scale-105 relative`}
-                                                        title={label}
-                                                    >
-                                                        {effect.spawnActorId ? (
-                                                            <img src={getActorImage(effect.spawnActorId)} className="w-full h-full object-contain" />
-                                                        ) : (
-                                                            <Icon size={20} className={textColor} strokeWidth={3} />
-                                                        )}
-                                                        {!effect.spawnActorId && <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse" />}
-                                                    </button>
+                                                    {/* ACTOR SELECTOR (For Spawn/Swap/Anim only) */}
+                                                    {(isSpawn || isSwap || isAnim) && (
+                                                        <button 
+                                                            onClick={() => setSelectionModal({ 
+                                                                ruleId: rule.id, 
+                                                                effectIndex: idx, 
+                                                                type: 'ACTOR',
+                                                                label: isSpawn ? "SPAWN WHAT?" : isSwap ? "SWAP WHO FOR WHAT?" : "PLAY WHICH ANIM?",
+                                                                allowTargetSelection: showTarget,
+                                                                allowLoop: isAnim,
+                                                                currentLoop: effect.isLoop || false,
+                                                                currentTarget: effect.target || 'SUBJECT',
+                                                                subjectActorId: rule.subjectId,
+                                                                objectActorId: rule.objectId
+                                                            })}
+                                                            className={`w-10 h-10 border-2 border-black rounded ${bgColor} hover:brightness-95 flex items-center justify-center transition-transform hover:scale-105 relative`}
+                                                            title={label}
+                                                        >
+                                                            {effect.spawnActorId ? (
+                                                                <img src={getActorImage(effect.spawnActorId)} className="w-full h-full object-contain" />
+                                                            ) : (
+                                                                <Icon size={20} className={textColor} strokeWidth={3} />
+                                                            )}
+                                                            {!effect.spawnActorId && <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse" />}
+                                                        </button>
+                                                    )}
+
+                                                    {/* EAT ICON (Configurable via target, but no actor selection needed unless remote) */}
+                                                    {isEat && (
+                                                         <button 
+                                                            onClick={() => {
+                                                                // If it's remote (ANY), we might want to select WHICH type to eat.
+                                                                if(effect.target === 'OBJECT' && !rule.objectId) {
+                                                                    setSelectionModal({ 
+                                                                        ruleId: rule.id, 
+                                                                        effectIndex: idx, 
+                                                                        type: 'ACTOR',
+                                                                        label: "DESTROY WHICH TYPE?",
+                                                                        allowTargetSelection: true, // Still show target toggle
+                                                                        currentTarget: 'OBJECT',
+                                                                        subjectActorId: rule.subjectId,
+                                                                        objectActorId: rule.objectId
+                                                                    });
+                                                                }
+                                                            }}
+                                                            className={`w-10 h-10 border-2 border-black rounded ${bgColor} flex items-center justify-center relative`}
+                                                         >
+                                                            {/* If we selected a specific actor type to destroy (spawnActorId), show it. Else show generic icon */}
+                                                            {(effect.spawnActorId && (effect.target === 'OBJECT' && !rule.objectId)) ? (
+                                                                <img src={getActorImage(effect.spawnActorId)} className="w-full h-full object-contain"/>
+                                                            ) : (
+                                                                <Icon size={24} className={textColor} strokeWidth={3} />
+                                                            )}
+                                                         </button>
+                                                    )}
 
                                                     {/* Location Selector (Only for SPAWN) */}
                                                     {isSpawn && effect.spawnActorId && (
@@ -566,7 +648,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                     );
                                 }
 
-                                // STANDARD EFFECT
+                                // STANDARD EFFECT (BLOCK, PUSH, DIE, etc.)
                                 const magnet = EFFECT_MAGNETS.find(m => m.type === effect.type);
                                 return (
                                 <div key={idx} className="relative group shrink-0">

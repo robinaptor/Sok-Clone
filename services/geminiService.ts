@@ -4,10 +4,11 @@ import { GameData, Actor, InteractionType } from "../types";
 import { CANVAS_SIZE } from "../constants";
 
 // Use Vite's standard way to access env variables
-// Note: The variable must be prefixed with VITE_ in .env file
-const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+// Safely access env with optional chaining to prevent runtime crashes if env is undefined
+// Fix: Cast import.meta to any to resolve TS error "Property 'env' does not exist on type 'ImportMeta'"
+const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || '';
 
-const ai = new GoogleGenAI({ apiKey: apiKey || '' });
+const ai = new GoogleGenAI({ apiKey: apiKey });
 
 // Helper to convert the 8x8 grid from AI into a drawn canvas image
 const convertGridToImage = (grid: number[], color: string): string => {
