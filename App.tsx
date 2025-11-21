@@ -7,7 +7,7 @@ import { RuleEditor } from './components/RuleEditor';
 import { GamePlayer } from './components/GamePlayer';
 import { ProjectManager } from './components/ProjectManager';
 import { generateGameIdea } from './services/geminiService';
-import { Sparkles, Plus, Download, Upload, FileUp, FileDown, Home, Save } from 'lucide-react';
+import { Sparkles, Plus, Download, Upload, FileUp, FileDown, Home, Save, ChevronUp } from 'lucide-react';
 
 const App: React.FC = () => {
   // Default to PROJECTS view (Home Screen)
@@ -99,47 +99,47 @@ const App: React.FC = () => {
       name: `Thing ${gameData.actors.length + 1}`,
       imageData: canvas.toDataURL()
     };
-    setGameData(prev => ({ ...prev, actors: [...prev.actors, newActor] }));
+    setGameData({ ...gameData, actors: [...gameData.actors, newActor] });
     setSelectedActorId(newActor.id);
     if (view !== ToolMode.DRAW) setView(ToolMode.DRAW);
   };
 
   const updateActor = (updated: Actor) => {
-    setGameData(prev => ({
-      ...prev,
-      actors: prev.actors.map(a => a.id === updated.id ? updated : a)
-    }));
+    setGameData({
+      ...gameData,
+      actors: gameData.actors.map(a => a.id === updated.id ? updated : a)
+    });
   };
 
   const deleteActor = (id: string) => {
     if (gameData.actors.length <= 1) return; // Keep at least one
-    setGameData(prev => ({
-      ...prev,
-      actors: prev.actors.filter(a => a.id !== id),
-      scenes: prev.scenes.map(scene => ({
+    setGameData({
+      ...gameData,
+      actors: gameData.actors.filter(a => a.id !== id),
+      scenes: gameData.scenes.map(scene => ({
           ...scene,
           objects: scene.objects.filter(obj => obj.actorId !== id)
       })),
-      rules: prev.rules.filter(r => r.subjectId !== id && r.objectId !== id)
-    }));
+      rules: gameData.rules.filter(r => r.subjectId !== id && r.objectId !== id)
+    });
     if (selectedActorId === id) setSelectedActorId(gameData.actors[0].id);
   };
 
   // --- SCENE LOGIC ---
   const addScene = () => {
       const newId = `scene_${gameData.scenes.length + 1}`;
-      setGameData(prev => ({
-          ...prev,
-          scenes: [...prev.scenes, { id: newId, objects: [] }]
-      }));
+      setGameData({
+          ...gameData,
+          scenes: [...gameData.scenes, { id: newId, objects: [] }]
+      });
       setCurrentSceneId(newId);
   };
 
   const updateCurrentSceneLevel = (objects: LevelObject[]) => {
-      setGameData(prev => ({
-          ...prev,
-          scenes: prev.scenes.map(s => s.id === currentSceneId ? { ...s, objects } : s)
-      }));
+      setGameData({
+          ...gameData,
+          scenes: gameData.scenes.map(s => s.id === currentSceneId ? { ...s, objects } : s)
+      });
   };
 
   const handleNextScene = () => {
@@ -151,11 +151,9 @@ const App: React.FC = () => {
       }
   };
 
-  // IMPORTANT: Using functional updates (prev => ...) prevents race conditions when 
-  // updating sounds and rules simultaneously (which RuleEditor does on Save).
-  const updateRules = (rules: Rule[]) => setGameData(prev => ({ ...prev, rules }));
-  const updateSounds = (sounds: Sound[]) => setGameData(prev => ({ ...prev, sounds })); 
-  const updateTitle = (title: string) => setGameData(prev => ({ ...prev, title }));
+  const updateRules = (rules: Rule[]) => setGameData({ ...gameData, rules });
+  const updateSounds = (sounds: Sound[]) => setGameData({ ...gameData, sounds }); // NEW
+  const updateTitle = (title: string) => setGameData({ ...gameData, title });
 
   // --- AI ---
   const handleGenerate = async () => {
@@ -261,7 +259,7 @@ const App: React.FC = () => {
   );
 
   return (
-    <div className="flex flex-col h-screen bg-[#fdfbf7] text-black font-['Gochi_Hand'] overflow-hidden min-w-[1024px] min-h-[700px] relative">
+    <div className="flex flex-col h-screen bg-[#fdfbf7] text-black font-['Gochi_Hand'] overflow-hidden">
       
       {/* HEADER */}
       <header className="h-16 px-4 flex items-center justify-between border-b-[3px] border-black bg-white relative z-20 shadow-sm shrink-0">
@@ -318,20 +316,17 @@ const App: React.FC = () => {
       </div>
 
       {/* MAIN WORKSPACE */}
-      <main className={`flex-1 relative bg-[#fdfbf7] overflow-hidden flex flex-col ${view === ToolMode.DRAW ? 'pb-0' : 'pb-32'}`}>
+      <main className="flex-1 relative bg-[#fdfbf7] overflow-hidden flex flex-col">
          <div 
             className="absolute inset-0 pointer-events-none opacity-10 z-0"
             style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'20\' height=\'20\' viewBox=\'0 0 20 20\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'%239C92AC\' fill-opacity=\'0.4\' fill-rule=\'evenodd\'%3E%3Ccircle cx=\'3\' cy=\'3\' r=\'1\'/%3E%3C/g%3E%3C/svg%3E")' }} 
          />
 
+         {/* REMOVED pb-32 to prevent white gap. Editors now take full height. */}
          <div className="flex-1 w-full h-full overflow-hidden relative z-10">
             {view === ToolMode.DRAW && selectedActorId && (
                 <SpriteEditor 
                     actor={gameData.actors.find(a => a.id === selectedActorId)!}
-                    allActors={gameData.actors} // Pass all actors
-                    selectedActorId={selectedActorId}
-                    onSelectActor={setSelectedActorId}
-                    onAddActor={addActor}
                     onUpdate={updateActor}
                     onDelete={deleteActor}
                     isHero={selectedActorId === 'hero'}
@@ -352,7 +347,7 @@ const App: React.FC = () => {
                 />
             )}
             {view === ToolMode.RULES && (
-                <div className="h-full overflow-hidden p-4">
+                <div className="h-full overflow-hidden p-4 pb-24">
                     <RuleEditor 
                         gameData={gameData} 
                         onUpdateRules={updateRules} 
@@ -364,52 +359,64 @@ const App: React.FC = () => {
          </div>
       </main>
 
-      {/* BOTTOM ACTOR STRIP (Hidden in DRAW mode, managed by SpriteEditor) */}
-      {view !== ToolMode.DRAW && (
-      <div className="h-32 bg-[#ffbad2] border-t-[4px] border-black flex items-center px-6 gap-6 absolute bottom-0 left-0 right-0 z-30 overflow-x-auto shadow-[0px_-4px_15px_rgba(0,0,0,0.1)]">
-          <button 
-            onClick={addActor}
-            className="h-24 w-24 flex flex-col items-center justify-center bg-white border-[3px] border-black rounded-2xl hover:bg-gray-50 flex-shrink-0 shadow-md transform hover:-rotate-3 transition-transform group"
-          >
-              <Plus size={48} className="text-gray-400 group-hover:text-black transition-colors" />
-              <span className="text-sm font-bold text-gray-400 group-hover:text-black">NEW</span>
-          </button>
+      {/* BOTTOM ACTOR STRIP - SLIDING PANEL */}
+      <div className="fixed bottom-0 w-full z-40 transition-transform duration-300 ease-out translate-y-[calc(100%-24px)] hover:translate-y-0 group">
+          
+          {/* HOVER TAB / HANDLE (Visible when collapsed) */}
+          <div className="absolute -top-8 left-1/2 -translate-x-1/2 w-32 h-10 bg-[#ffbad2] border-t-[4px] border-x-[4px] border-black rounded-t-2xl flex items-center justify-center cursor-pointer group-hover:opacity-0 transition-opacity duration-200 shadow-md">
+              <ChevronUp size={24} className="text-black/50 animate-bounce" />
+          </div>
 
-          <div className="h-20 w-[3px] bg-black/10 rounded-full mx-2" />
+          <div className="h-32 bg-[#ffbad2] border-t-[4px] border-black flex items-center px-6 gap-6 w-full overflow-x-auto shadow-[0px_-4px_15px_rgba(0,0,0,0.1)] relative">
+              
+              {/* "ITEMS" Label for clarity when open */}
+              <div className="absolute top-0 left-0 bg-black text-white text-[10px] font-bold px-2 py-0.5 rounded-br">
+                  PROJECT ITEMS
+              </div>
 
-          {gameData.actors.map(actor => (
-              <button
-                key={actor.id}
-                draggable="true"
-                onDragStart={(e) => handleDragStart(e, actor.id)}
-                onClick={() => {
-                    setSelectedActorId(actor.id);
-                    if(view === ToolMode.RULES) return; 
-                    setView(ToolMode.DRAW);
-                }}
-                className={`
-                    relative h-24 w-24 bg-white border-[3px] rounded-xl flex items-center justify-center flex-shrink-0 transition-all duration-200 overflow-hidden cursor-grab active:cursor-grabbing
-                    ${selectedActorId === actor.id && view !== ToolMode.RULES
-                        ? 'border-black shadow-[6px_6px_0px_0px_black] -translate-y-3 rotate-[-2deg]' 
-                        : 'border-black/40 hover:border-black hover:-translate-y-1 hover:rotate-1'}
-                `}
+              <button 
+                onClick={addActor}
+                className="h-24 w-24 flex flex-col items-center justify-center bg-white border-[3px] border-black rounded-2xl hover:bg-gray-50 flex-shrink-0 shadow-md transform hover:-rotate-3 transition-transform group/btn"
               >
-                  <img 
-                    src={actor.imageData} 
-                    alt={actor.name}
-                    className="w-full h-full object-contain p-1 pointer-events-none"
-                  />
-                  
-                  {selectedActorId === actor.id && view !== ToolMode.RULES && (
-                      <div className="absolute -top-4 -right-2 bg-yellow-300 text-black text-sm font-bold px-3 py-1 border-2 border-black rounded-full rotate-12 shadow-sm z-10">
-                          EDIT
-                      </div>
-                  )}
+                  <Plus size={48} className="text-gray-400 group-hover/btn:text-black transition-colors" />
+                  <span className="text-sm font-bold text-gray-400 group-hover/btn:text-black">NEW</span>
               </button>
-          ))}
-          <div className="w-10 flex-shrink-0"></div>
+
+              <div className="h-20 w-[3px] bg-black/10 rounded-full mx-2" />
+
+              {gameData.actors.map(actor => (
+                  <button
+                    key={actor.id}
+                    draggable="true"
+                    onDragStart={(e) => handleDragStart(e, actor.id)}
+                    onClick={() => {
+                        setSelectedActorId(actor.id);
+                        if(view === ToolMode.RULES) return; 
+                        setView(ToolMode.DRAW);
+                    }}
+                    className={`
+                        relative h-24 w-24 bg-white border-[3px] rounded-xl flex items-center justify-center flex-shrink-0 transition-all duration-200 overflow-hidden cursor-grab active:cursor-grabbing
+                        ${selectedActorId === actor.id && view !== ToolMode.RULES
+                            ? 'border-black shadow-[6px_6px_0px_0px_black] -translate-y-3 rotate-[-2deg]' 
+                            : 'border-black/40 hover:border-black hover:-translate-y-1 hover:rotate-1'}
+                    `}
+                  >
+                      <img 
+                        src={actor.imageData} 
+                        alt={actor.name}
+                        className="w-full h-full object-contain p-1 pointer-events-none"
+                      />
+                      
+                      {selectedActorId === actor.id && view !== ToolMode.RULES && (
+                          <div className="absolute -top-4 -right-2 bg-yellow-300 text-black text-sm font-bold px-3 py-1 border-2 border-black rounded-full rotate-12 shadow-sm z-10">
+                              EDIT
+                          </div>
+                      )}
+                  </button>
+              ))}
+              <div className="w-10 flex-shrink-0"></div>
+          </div>
       </div>
-      )}
 
     </div>
   );

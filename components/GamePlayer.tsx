@@ -48,7 +48,7 @@ const AnimatedSprite = ({
             if (!lastTimeRef.current) lastTimeRef.current = time;
             const deltaTime = time - lastTimeRef.current;
             
-            // 100ms per frame (~10 FPS) - Slower as requested
+            // 100ms per frame (~10 FPS)
             if (deltaTime > 100) {
                 setFrameIdx(curr => {
                     const next = curr + 1;
@@ -56,7 +56,7 @@ const AnimatedSprite = ({
                         if (isLooping) {
                             return 0; 
                         } else {
-                            // STAY ON LAST FRAME: Do NOT call onFinish()
+                            // STAY ON LAST FRAME
                             return curr; 
                         }
                     }
@@ -173,10 +173,15 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
       
       if (soundId) playSound(soundId);
 
+      let previousActionDuration = 0;
+
       for (const effect of effects) {
-          // Sequence Delay
+          // Sequence Delay: Wait for previous action (anim) to complete
           if (effect.type === InteractionType.THEN) {
-              await new Promise(resolve => setTimeout(resolve, 1000));
+              if (previousActionDuration > 0) {
+                  await new Promise(resolve => setTimeout(resolve, previousActionDuration));
+              }
+              previousActionDuration = 0; // Reset after waiting
               continue;
           }
 
@@ -187,17 +192,34 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
           switch (effect.type) {
               case InteractionType.WIN:
                   setStatus('WON');
+                  previousActionDuration = 0;
                   break;
+                  
               case InteractionType.DESTROY_SUBJECT:
-                  setStatus('LOST'); 
+                  // Async destruction of Subject
+                  setObjects(prev => prev.filter(o => o.id !== subjectObjId));
+                  if (subjectObjId === draggingId) setDraggingId(null);
+                  // Check if hero died
+                  const subjectActor = objects.find(o => o.id === subjectObjId);
+                  if (subjectActor && getActor(subjectActor.actorId)?.id === 'hero') {
+                      setStatus('LOST');
+                  }
+                  previousActionDuration = 0;
                   break;
+
                case InteractionType.DESTROY_OBJECT: 
-                  // Handled in collision logic
+                  // Async destruction of Object (Collision target)
+                  if (objectObjId) {
+                      setObjects(prev => prev.filter(o => o.id !== objectObjId));
+                  }
+                  previousActionDuration = 0;
                   break;
+
                case InteractionType.CHANGE_SCENE:
                   setStatus('TRANSITION');
                   await new Promise(resolve => setTimeout(resolve, 1000)); 
                   jumpToScene(effect.targetSceneId);
+                  previousActionDuration = 0;
                   break;
                
                // --- SPAWN ---
@@ -208,10 +230,12 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                            actorId: effect.spawnActorId,
                            x: effect.spawnX,
                            y: effect.spawnY,
+                           scale: 1.0,
                            isLocked: false 
                        };
                        setObjects(prev => [...prev, newObj]);
                    }
+                   previousActionDuration = 0;
                    break;
                
                // --- SWAP ---
@@ -224,11 +248,21 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                             return o;
                         }));
                     }
+                    previousActionDuration = 0;
                     break;
 
                // --- ANIM (Play Visual IN PLACE) ---
                case InteractionType.PLAY_ANIM:
                    if (effect.spawnActorId) {
+                       // Calculate duration for THEN to wait
+                       const actor = getActor(effect.spawnActorId);
+                       if (actor && actor.frames && actor.frames.length > 1) {
+                           // 100ms per frame. Add buffer to ensure visual completion.
+                           previousActionDuration = (actor.frames.length * 100) + 100; 
+                       } else {
+                           previousActionDuration = 0;
+                       }
+
                        setObjects(prev => prev.map(o => {
                            if (o.id === targetObjId) {
                                return { 
@@ -242,6 +276,8 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                            }
                            return o;
                        }));
+                   } else {
+                       previousActionDuration = 0;
                    }
                    break;
 
@@ -258,6 +294,11 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                       }
                       return o;
                   }));
+                  previousActionDuration = 0;
+                  break;
+                
+               default:
+                  previousActionDuration = 0;
                   break;
           }
       }
@@ -300,14 +341,20 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
       return () => clearInterval(interval);
   }, [activeSceneId, status, objects.length]); 
 
-  // AABB Collision with Buffer (Hysteresis)
-  const checkCollision = (rect1: {x: number, y: number}, rect2: {x: number, y: number}, buffer = 0) => {
-      const size = ACTOR_SIZE; 
+  // AABB Collision with Buffer (Hysteresis) and Scale Support
+  const checkCollision = (
+      rect1: {x: number, y: number, scale?: number}, 
+      rect2: {x: number, y: number, scale?: number}, 
+      buffer = 0
+  ) => {
+      const size1 = ACTOR_SIZE * (rect1.scale || 1);
+      const size2 = ACTOR_SIZE * (rect2.scale || 1);
+      
       return (
-          rect1.x < rect2.x + size + buffer &&
-          rect1.x + size + buffer > rect2.x &&
-          rect1.y < rect2.y + size + buffer &&
-          rect1.y + size + buffer > rect2.y
+          rect1.x < rect2.x + size2 + buffer &&
+          rect1.x + size1 + buffer > rect2.x &&
+          rect1.y < rect2.y + size2 + buffer &&
+          rect1.y + size1 + buffer > rect2.y
       );
   };
 
@@ -326,10 +373,8 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
           ruleTriggered = true;
           executingRuleIds.current.add(rule.id);
 
-          const immediateDestroys = rule.effects.some(e => e.type === InteractionType.DESTROY_SUBJECT || e.type === InteractionType.DESTROY_OBJECT);
-          if (immediateDestroys) {
-             setObjects(prev => prev.filter(o => o.id !== obj.id));
-          }
+          // Removed synchronous destruction check here.
+          // Now handled fully in executeRuleEffects.
 
           await executeRuleEffects(rule.id, rule.effects, obj.id, null, rule.soundId);
           executingRuleIds.current.delete(rule.id);
@@ -357,29 +402,31 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
       let newX = (e.clientX - container.left) * scaleX - dragOffset.current.x;
       let newY = (e.clientY - container.top) * scaleY - dragOffset.current.y;
 
-      newX = Math.max(0, Math.min(newX, SCENE_WIDTH - ACTOR_SIZE));
-      newY = Math.max(0, Math.min(newY, SCENE_HEIGHT - ACTOR_SIZE));
-
       const movingObj = objects.find(o => o.id === draggingId);
       if (!movingObj) return;
 
+      const mySize = ACTOR_SIZE * (movingObj.scale || 1);
+
+      // Bound Check with Size
+      newX = Math.max(0, Math.min(newX, SCENE_WIDTH - mySize));
+      newY = Math.max(0, Math.min(newY, SCENE_HEIGHT - mySize));
+
       let allowMove = true;
-      let idsToDestroy: string[] = [];
+      // idsToDestroy is now unused for immediate removal, handled async in executeRuleEffects.
+      // However, we might still want to block movement if needed.
 
       for (const other of objects) {
           if (other.id === draggingId) continue;
 
-          // 1. Strict Collision for ENTRY
-          const isStrictTouching = checkCollision({x: newX, y: newY}, other, 0);
-          
-          // 2. Loose Collision for EXIT (Hysteresis of 5px)
-          const isLooseTouching = checkCollision({x: newX, y: newY}, other, 5);
+          const isTouching = checkCollision(
+              {x: newX, y: newY, scale: movingObj.scale}, 
+              {x: other.x, y: other.y, scale: other.scale}
+          );
           
           const pairKey = [movingObj.id, other.id].sort().join(':');
 
-          if (isStrictTouching) {
+          if (isTouching) {
               
-              // ONLY TRIGGER if not already colliding (ON ENTER)
               if (!activeCollisions.current.has(pairKey)) {
                   activeCollisions.current.add(pairKey);
 
@@ -400,28 +447,16 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                           if (hasBlock || hasPush) allowMove = false;
 
                           if (!executingRuleIds.current.has(rule.id)) {
-                              const hasStateEffects = rule.effects.some(e => 
-                                  e.type === InteractionType.WIN || 
-                                  e.type === InteractionType.DESTROY_OBJECT || 
-                                  e.type === InteractionType.DESTROY_SUBJECT || 
-                                  e.type === InteractionType.CHANGE_SCENE ||
-                                  e.type === InteractionType.SPAWN ||
-                                  e.type === InteractionType.SWAP ||
-                                  e.type === InteractionType.PLAY_ANIM
-                              );
-
+                              // Removed synchronous destruction check here.
+                              
                               if (rule.soundId && !executingRuleIds.current.has(rule.id)) {
                                    playSound(rule.soundId);
                               }
 
-                              if (hasStateEffects) {
+                              // Check if effects exist to trigger async execution
+                              if (rule.effects.length > 0) {
                                   executingRuleIds.current.add(rule.id);
                                   
-                                  rule.effects.forEach(e => {
-                                      if(e.type === InteractionType.DESTROY_OBJECT) idsToDestroy.push(other.id);
-                                      if(e.type === InteractionType.DESTROY_SUBJECT) idsToDestroy.push(movingObj.id);
-                                  });
-
                                   executeRuleEffects(rule.id, rule.effects, movingObj.id, other.id, rule.soundId)
                                       .then(() => {
                                           executingRuleIds.current.delete(rule.id);
@@ -432,10 +467,15 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                   }
               } 
               
-          } else if (!isLooseTouching) {
-              // Only reset collision if we are firmly OUTSIDE the buffer zone
-              if (activeCollisions.current.has(pairKey)) {
-                  activeCollisions.current.delete(pairKey); // ON EXIT
+          } else {
+              const isStillClose = checkCollision(
+                  {x: newX, y: newY, scale: movingObj.scale}, 
+                  {x: other.x, y: other.y, scale: other.scale},
+                  5
+              );
+
+              if (!isStillClose && activeCollisions.current.has(pairKey)) {
+                  activeCollisions.current.delete(pairKey); 
               }
           }
       }
@@ -444,12 +484,8 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
           setObjects(prev => prev.map(o => {
               if (o.id === draggingId) return { ...o, x: newX, y: newY };
               return o;
-          }).filter(o => !idsToDestroy.includes(o.id)));
-      } else {
-          if(idsToDestroy.length > 0) {
-              setObjects(prev => prev.filter(o => !idsToDestroy.includes(o.id)));
-          }
-      }
+          }));
+      } 
   };
 
   const handleMouseUp = () => {
@@ -485,6 +521,9 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                             
                             if (!actor) return null;
                             const isDragging = draggingId === obj.id;
+                            
+                            const currentScale = obj.scale || 1.0;
+                            const displaySize = ACTOR_SIZE * currentScale;
 
                             return (
                                 <div
@@ -494,15 +533,14 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                                     style={{ 
                                         left: obj.x, 
                                         top: obj.y, 
-                                        width: ACTOR_SIZE, 
-                                        height: ACTOR_SIZE,
+                                        width: displaySize, 
+                                        height: displaySize,
                                         zIndex: isDragging ? 50 : 10,
                                         transition: isDragging ? 'none' : 'transform 0.1s',
-                                        transform: isDragging ? 'scale(1.1)' : 'scale(1)',
+                                        transform: isDragging ? 'scale(1.05)' : 'scale(1)',
                                         opacity: obj.isEphemeral ? 0.9 : 1
                                     }}
                                 >
-                                    {/* Animated Sprite handles logic: Static if not playing, Animates if playing */}
                                     <AnimatedSprite 
                                         baseActor={actor} 
                                         playingActor={playingActor} 

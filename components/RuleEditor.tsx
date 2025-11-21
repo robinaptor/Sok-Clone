@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { GameData, Rule, InteractionType, RuleTrigger, Sound } from '../types';
 import { TRIGGER_MAGNETS, EFFECT_MAGNETS, SCENE_WIDTH, SCENE_HEIGHT } from '../constants';
-import { Trash2, Square, ArrowRight, Trophy, HelpCircle, Hand, Eye, DoorOpen, Utensils, Skull, Puzzle, Ban, RotateCw, Globe, MapPin, X, Timer, ChevronsRight, Flag, Hourglass, Sparkles, Crosshair, Volume2, VolumeX, Edit3, Plus, RefreshCw, Clapperboard, ArrowDown, Repeat } from 'lucide-react';
+import { Trash2, Square, ArrowRight, Trophy, HelpCircle, Hand, Eye, DoorOpen, Utensils, Skull, Puzzle, Ban, RotateCw, Globe, MapPin, X, Timer, ChevronsRight, Flag, Hourglass, Sparkles, Crosshair, Volume2, VolumeX, Edit3, Plus, RefreshCw, Clapperboard, ArrowDown, Repeat, Clock } from 'lucide-react';
 import { SoundRecorder } from './SoundRecorder';
 
 interface RuleEditorProps {
@@ -22,7 +22,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
   const [selectionModal, setSelectionModal] = useState<{
     ruleId: string;
     effectIndex: number;
-    type: 'ACTOR' | 'SCENE';
+    type: 'ACTOR' | 'SCENE'; 
     label: string; // "SELECT ANIMATION" etc
     allowTargetSelection?: boolean; // For SWAP/ANIM (Subject vs Object)
     currentTarget?: 'SUBJECT' | 'OBJECT';
@@ -539,15 +539,17 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                     );
                                 }
 
-                                // SPECIAL CARD: THEN (TIMER)
+                                // SPECIAL CARD: THEN (SEQUENCE WAIT)
                                 if (effect.type === InteractionType.THEN) {
                                     return (
                                         <div key={idx} className="relative group shrink-0 flex items-center justify-center px-2">
-                                             <div className="flex flex-col items-center">
-                                                <ChevronsRight size={24} className="text-gray-400" />
-                                                <span className="text-[8px] font-bold text-gray-400">WAIT</span>
+                                             <div className="flex flex-col items-center bg-white border-2 border-gray-400 rounded-lg p-2 shadow-sm h-[90px] min-w-[80px] justify-center gap-1">
+                                                <span className="text-[10px] font-bold text-gray-500 uppercase">THEN</span>
+                                                <div className="w-12 h-10 flex items-center justify-center">
+                                                    <ChevronsRight size={28} className="text-gray-400" />
+                                                </div>
                                              </div>
-                                             <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-3 right-0 bg-red-500 text-white rounded-full p-0.5 w-4 h-4 flex items-center justify-center hover:scale-110 opacity-0 group-hover:opacity-100 transition-opacity"><X size={10} /></button>
+                                             <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 right-0 bg-red-500 text-white rounded-full p-0.5 w-5 h-5 flex items-center justify-center hover:scale-110 z-10"><X size={12} /></button>
                                         </div>
                                     );
                                 }
