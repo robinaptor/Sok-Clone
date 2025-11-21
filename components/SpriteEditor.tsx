@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Actor } from '../types';
 import { CANVAS_SIZE } from '../constants';
-import { Trash2, Pencil, Eraser, PaintBucket, RefreshCw, Plus, Copy, Circle, ChevronRight, Play, Square } from 'lucide-react';
+import { Trash2, Pencil, Eraser, PaintBucket, RefreshCw, Plus, Copy, Circle, ChevronRight, Play, Square, Layers } from 'lucide-react';
 
 interface SpriteEditorProps {
   actor: Actor;
@@ -25,6 +25,11 @@ export const SpriteEditor: React.FC<SpriteEditorProps> = ({ actor, onUpdate, onD
   const [frames, setFrames] = useState<string[]>(actor.frames || [actor.imageData]);
   const [currentFrameIdx, setCurrentFrameIdx] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [onionSkinEnabled, setOnionSkinEnabled] = useState(false); 
+  
+  // ONION COLORS
+  const [onionPrevColor, setOnionPrevColor] = useState('#ff0000'); // Red
+  const [onionNextColor, setOnionNextColor] = useState('#0000ff'); // Blue
 
   // Initialize canvas with High DPI support (User Logic Merged)
   useEffect(() => {
@@ -50,16 +55,17 @@ export const SpriteEditor: React.FC<SpriteEditorProps> = ({ actor, onUpdate, onD
         if (ctx) {
           ctx.scale(dpr, dpr);
           ctx.imageSmoothingEnabled = false;
-
+          ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+          
+          // Draw ONLY the current frame (onion skin is handled by CSS now)
           const img = new Image();
           img.src = frames[currentFrameIdx] || frames[0]; 
           img.onload = () => {
-            ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
             ctx.drawImage(img, 0, 0, CANVAS_SIZE, CANVAS_SIZE);
           };
         }
       }
-  }, [currentFrameIdx, frames, actor.id]);
+  }, [currentFrameIdx, frames]); 
 
   // Preview Animation Loop
   useEffect(() => {
@@ -101,16 +107,19 @@ export const SpriteEditor: React.FC<SpriteEditorProps> = ({ actor, onUpdate, onD
       
       const newFrames = [...frames, blankFrame];
       setFrames(newFrames);
-      setCurrentFrameIdx(newFrames.length - 1);
+      const newIdx = newFrames.length - 1;
+      setCurrentFrameIdx(newIdx);
       onUpdate({ ...actor, frames: newFrames });
   };
 
   const duplicateFrame = () => {
       const currentData = frames[currentFrameIdx];
       const newFrames = [...frames];
+      // Insert copy after current
       newFrames.splice(currentFrameIdx + 1, 0, currentData);
       setFrames(newFrames);
-      setCurrentFrameIdx(currentFrameIdx + 1);
+      const newIdx = currentFrameIdx + 1;
+      setCurrentFrameIdx(newIdx);
       onUpdate({ ...actor, frames: newFrames });
   };
 
@@ -242,6 +251,28 @@ export const SpriteEditor: React.FC<SpriteEditorProps> = ({ actor, onUpdate, onD
     }
   };
 
+  // --- ONION SKIN HELPERS ---
+  const getPrevOnionSkin = () => {
+      if (currentFrameIdx > 0) {
+          return frames[currentFrameIdx - 1];
+      } else if (frames.length > 1) {
+          return frames[frames.length - 1]; 
+      }
+      return null;
+  };
+
+  const getNextOnionSkin = () => {
+      if (currentFrameIdx < frames.length - 1) {
+          return frames[currentFrameIdx + 1];
+      } else if (frames.length > 1) {
+          return frames[0]; 
+      }
+      return null;
+  };
+
+  const prevOnion = getPrevOnionSkin();
+  const nextOnion = getNextOnionSkin();
+
   return (
     <div className="flex w-full h-full bg-[#fdfbf7] overflow-hidden">
         
@@ -325,6 +356,48 @@ export const SpriteEditor: React.FC<SpriteEditorProps> = ({ actor, onUpdate, onD
                 <div className="absolute -top-12 left-0 bg-black text-white px-3 py-1 rounded-t-lg font-bold font-mono">
                     FRAME {currentFrameIdx + 1}/{frames.length}
                 </div>
+
+                {/* ONION SKIN LAYERS (Tinted Divs with Masks) */}
+                {onionSkinEnabled && !isPlaying && (
+                    <>
+                        {/* PREV FRAME (Tinted by User Color) */}
+                        {prevOnion && (
+                            <div 
+                                key={`prev-onion-${currentFrameIdx}-${frames.length}`}
+                                className="absolute top-0 left-0 w-full h-full opacity-30 pointer-events-none"
+                                style={{ 
+                                    zIndex: 0, 
+                                    backgroundColor: onionPrevColor,
+                                    maskImage: `url(${prevOnion})`,
+                                    WebkitMaskImage: `url(${prevOnion})`,
+                                    maskSize: 'contain',
+                                    WebkitMaskSize: 'contain',
+                                    maskRepeat: 'no-repeat',
+                                    WebkitMaskRepeat: 'no-repeat',
+                                    imageRendering: 'pixelated'
+                                }}
+                            />
+                        )}
+                        {/* NEXT FRAME (Tinted by User Color) */}
+                        {nextOnion && frames.length > 2 && (
+                            <div 
+                                key={`next-onion-${currentFrameIdx}-${frames.length}`}
+                                className="absolute top-0 left-0 w-full h-full opacity-20 pointer-events-none"
+                                style={{ 
+                                    zIndex: 0, 
+                                    backgroundColor: onionNextColor,
+                                    maskImage: `url(${nextOnion})`,
+                                    WebkitMaskImage: `url(${nextOnion})`,
+                                    maskSize: 'contain',
+                                    WebkitMaskSize: 'contain',
+                                    maskRepeat: 'no-repeat',
+                                    WebkitMaskRepeat: 'no-repeat',
+                                    imageRendering: 'pixelated'
+                                }}
+                            />
+                        )}
+                    </>
+                )}
                 
                 <canvas 
                     ref={canvasRef}
@@ -332,10 +405,11 @@ export const SpriteEditor: React.FC<SpriteEditorProps> = ({ actor, onUpdate, onD
                     onMouseMove={handleMouseMove}
                     onMouseUp={handleMouseUp}
                     onMouseLeave={handleMouseUp}
-                    className="bg-transparent cursor-crosshair touch-none w-full h-full object-contain image-pixelated"
+                    className="bg-transparent cursor-crosshair touch-none w-full h-full object-contain image-pixelated relative z-10"
                     style={{
                         backgroundImage: 'radial-gradient(#e5e7eb 2px, transparent 2px)',
                         backgroundSize: '20px 20px',
+                        imageRendering: 'pixelated'
                     }}
                 />
             </div>
@@ -343,8 +417,9 @@ export const SpriteEditor: React.FC<SpriteEditorProps> = ({ actor, onUpdate, onD
 
         {/* --- RIGHT COLUMN: ANIMATION --- */}
         <div className="w-40 bg-white border-l-[3px] border-black flex flex-col z-20 h-full shadow-lg">
-            <div className="p-4 border-b-2 border-black/10 flex flex-col items-center gap-2">
+            <div className="p-4 border-b-2 border-black/10 flex flex-col items-center gap-3">
                 <label className="font-bold text-sm flex items-center gap-2">ANIMATION</label>
+                
                 <button 
                     onClick={() => setIsPlaying(!isPlaying)}
                     className={`w-full h-10 sketch-btn flex items-center justify-center gap-2 ${isPlaying ? 'bg-green-300' : 'hover:bg-gray-100'}`}
@@ -352,6 +427,31 @@ export const SpriteEditor: React.FC<SpriteEditorProps> = ({ actor, onUpdate, onD
                     {isPlaying ? <Square size={16} fill="black"/> : <Play size={16} fill="black"/>}
                     <span className="text-xs font-bold">{isPlaying ? 'STOP' : 'PLAY'}</span>
                 </button>
+
+                {/* ONION SKIN TOGGLE & COLORS */}
+                <div className="flex flex-col gap-2 w-full bg-gray-100 p-2 rounded-lg border border-black/10">
+                    <button 
+                        onClick={() => setOnionSkinEnabled(!onionSkinEnabled)}
+                        className={`w-full h-8 border-2 border-black rounded-full flex items-center justify-center gap-2 transition-colors ${onionSkinEnabled ? 'bg-purple-200' : 'bg-white hover:bg-gray-200'}`}
+                        title="Toggle Onion Skin (See previous/next frame)"
+                    >
+                        <Layers size={16} className={onionSkinEnabled ? 'text-purple-700' : 'text-gray-500'}/>
+                        <span className={`text-[10px] font-bold ${onionSkinEnabled ? 'text-purple-900' : 'text-gray-500'}`}>{onionSkinEnabled ? 'ONION: ON' : 'ONION'}</span>
+                    </button>
+
+                    {onionSkinEnabled && (
+                        <div className="flex justify-between gap-1">
+                            <div className="flex flex-col items-center w-1/2">
+                                <span className="text-[8px] font-bold text-gray-500">PREV</span>
+                                <input type="color" value={onionPrevColor} onChange={(e) => setOnionPrevColor(e.target.value)} className="w-full h-6 rounded border border-black cursor-pointer"/>
+                            </div>
+                            <div className="flex flex-col items-center w-1/2">
+                                <span className="text-[8px] font-bold text-gray-500">NEXT</span>
+                                <input type="color" value={onionNextColor} onChange={(e) => setOnionNextColor(e.target.value)} className="w-full h-6 rounded border border-black cursor-pointer"/>
+                            </div>
+                        </div>
+                    )}
+                </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3 items-center">

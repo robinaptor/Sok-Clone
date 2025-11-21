@@ -322,10 +322,10 @@ const App: React.FC = () => {
             style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'20\' height=\'20\' viewBox=\'0 0 20 20\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'%239C92AC\' fill-opacity=\'0.4\' fill-rule=\'evenodd\'%3E%3Ccircle cx=\'3\' cy=\'3\' r=\'1\'/%3E%3C/g%3E%3C/svg%3E")' }} 
          />
 
-         {/* REMOVED pb-32 to prevent white gap. Editors now take full height. */}
          <div className="flex-1 w-full h-full overflow-hidden relative z-10">
             {view === ToolMode.DRAW && selectedActorId && (
                 <SpriteEditor 
+                    key={selectedActorId} // Forces remount when actor changes (fixes state mixing)
                     actor={gameData.actors.find(a => a.id === selectedActorId)!}
                     onUpdate={updateActor}
                     onDelete={deleteActor}

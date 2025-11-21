@@ -10,6 +10,19 @@ interface GamePlayerProps {
   onNextScene: () => void;
 }
 
+// Helper to decode Base64 audio data directly to ArrayBuffer
+const base64ToArrayBuffer = (base64: string) => {
+    // Handle both data URI and raw base64
+    const stringToDecode = base64.includes(',') ? base64.split(',')[1] : base64;
+    const binaryString = window.atob(stringToDecode);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes.buffer;
+};
+
 // --- ANIMATED SPRITE COMPONENT ---
 const AnimatedSprite = ({ 
     baseActor, 
@@ -30,17 +43,14 @@ const AnimatedSprite = ({
     const requestRef = useRef<number>(0);
     const lastTimeRef = useRef<number>(0);
 
-    // If an animation is active, use its frames. Otherwise use baseActor's first frame.
     const activeFrames = playingActor?.frames && playingActor.frames.length > 0 ? playingActor.frames : [baseActor.imageData];
     const isPlaying = !!playingActor;
 
-    // Reset on new animation trigger (based on timestamp change)
     useEffect(() => {
         setFrameIdx(0);
         lastTimeRef.current = 0; 
     }, [playingActor?.id, triggerTime]);
 
-    // Animation Loop
     useEffect(() => {
         if (!isPlaying || activeFrames.length <= 1) return;
         
@@ -48,7 +58,6 @@ const AnimatedSprite = ({
             if (!lastTimeRef.current) lastTimeRef.current = time;
             const deltaTime = time - lastTimeRef.current;
             
-            // 100ms per frame (~10 FPS)
             if (deltaTime > 100) {
                 setFrameIdx(curr => {
                     const next = curr + 1;
@@ -56,7 +65,6 @@ const AnimatedSprite = ({
                         if (isLooping) {
                             return 0; 
                         } else {
-                            // STAY ON LAST FRAME
                             return curr; 
                         }
                     }
@@ -83,20 +91,50 @@ const AnimatedSprite = ({
 };
 
 export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId, onExit, onNextScene }) => {
-  // State to override the scene ID locally if we jump scenes
   const [activeSceneId, setActiveSceneId] = useState(currentSceneId);
   const [objects, setObjects] = useState<LevelObject[]>([]);
   const [status, setStatus] = useState<'PLAYING' | 'WON' | 'LOST' | 'TRANSITION'>('PLAYING');
   
-  // Dragging State
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const dragOffset = useRef({ x: 0, y: 0 });
 
-  // Keep track of executing rules to prevent double-triggering same sequence instantly
   const executingRuleIds = useRef<Set<string>>(new Set());
-
-  // Keep track of active physical collisions to trigger rules only ON ENTER
   const activeCollisions = useRef<Set<string>>(new Set());
+  
+  const audioCtxRef = useRef<AudioContext | null>(null);
+
+  // --- AUDIO INIT ---
+  useEffect(() => {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      audioCtxRef.current = new AudioContextClass();
+      return () => { audioCtxRef.current?.close(); };
+  }, []);
+
+  const resumeAudioContext = async () => {
+      if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+          await audioCtxRef.current.resume();
+      }
+  };
+
+  const playSound = async (soundId: string) => {
+      const sound = gameData.sounds?.find(s => s.id === soundId);
+      if (!sound || !audioCtxRef.current) return;
+
+      try {
+          await resumeAudioContext();
+
+          // Use direct conversion instead of fetch
+          const arrayBuffer = base64ToArrayBuffer(sound.data);
+          const audioBuffer = await audioCtxRef.current.decodeAudioData(arrayBuffer);
+
+          const source = audioCtxRef.current.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(audioCtxRef.current.destination);
+          source.start(0);
+      } catch (e) {
+          console.error("Failed to play sound:", e);
+      }
+  };
 
   // Init or Reset
   useEffect(() => { resetGame(currentSceneId); }, [currentSceneId]);
@@ -111,7 +149,6 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
     activeCollisions.current.clear();
   };
 
-  // Clean up ephemeral objects (visual effects) automatically
   useEffect(() => {
       const ephemeralObjs = objects.filter(o => o.isEphemeral);
       if (ephemeralObjs.length > 0) {
@@ -122,19 +159,16 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
       }
   }, [objects.length]); 
 
-  // Internal helper to switch scenes during play
   const jumpToScene = (targetId?: string) => {
       let nextId = targetId;
       if (!nextId) {
-          // Default Next Logic
           const idx = gameData.scenes.findIndex(s => s.id === activeSceneId);
           if (idx >= 0 && idx < gameData.scenes.length - 1) {
               nextId = gameData.scenes[idx+1].id;
           } else {
-              nextId = gameData.scenes[0].id; // Loop
+              nextId = gameData.scenes[0].id;
           }
       }
-      // Check if scene exists
       if (gameData.scenes.find(s => s.id === nextId)) {
           resetGame(nextId!);
       }
@@ -142,7 +176,6 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
 
   const getActor = useCallback((id: string) => gameData.actors.find(a => a.id === id), [gameData]);
 
-  // Callback to stop animation on an object
   const handleAnimationFinish = (objId: string) => {
       setObjects(prev => prev.map(o => {
           if (o.id === objId) {
@@ -152,43 +185,29 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
       }));
   };
 
-  // Scope Filter: Get rules that apply to THIS scene OR are GLOBAL
   const getActiveRules = () => {
       return gameData.rules.filter(r => r.scope === 'GLOBAL' || r.scope === activeSceneId);
   };
 
-  // --- HELPER: SOUND ---
-  const playSound = (soundId: string) => {
-      const sound = gameData.sounds?.find(s => s.id === soundId);
-      if (sound) {
-          try {
-              const audio = new Audio(sound.data);
-              audio.play();
-          } catch (e) { console.error("Audio play failed", e); }
-      }
-  };
-
-  // --- ASYNC RULE EXECUTOR ---
   const executeRuleEffects = async (ruleId: string, effects: RuleEffect[], subjectObjId: string, objectObjId: string | null, soundId?: string) => {
       
-      if (soundId) playSound(soundId);
+      if (soundId) {
+          playSound(soundId);
+      }
 
       let previousActionDuration = 0;
 
       for (const effect of effects) {
-          // Sequence Delay: Wait for previous action (anim) to complete
           if (effect.type === InteractionType.THEN) {
               if (previousActionDuration > 0) {
                   await new Promise(resolve => setTimeout(resolve, previousActionDuration));
               }
-              previousActionDuration = 0; // Reset after waiting
+              previousActionDuration = 0; 
               continue;
           }
 
-          // Determine Target ID for SWAP/ANIM based on effect configuration
           const targetObjId = effect.target === 'OBJECT' && objectObjId ? objectObjId : subjectObjId;
 
-          // State Changes
           switch (effect.type) {
               case InteractionType.WIN:
                   setStatus('WON');
@@ -196,10 +215,8 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                   break;
                   
               case InteractionType.DESTROY_SUBJECT:
-                  // Async destruction of Subject
                   setObjects(prev => prev.filter(o => o.id !== subjectObjId));
                   if (subjectObjId === draggingId) setDraggingId(null);
-                  // Check if hero died
                   const subjectActor = objects.find(o => o.id === subjectObjId);
                   if (subjectActor && getActor(subjectActor.actorId)?.id === 'hero') {
                       setStatus('LOST');
@@ -208,7 +225,6 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                   break;
 
                case InteractionType.DESTROY_OBJECT: 
-                  // Async destruction of Object (Collision target)
                   if (objectObjId) {
                       setObjects(prev => prev.filter(o => o.id !== objectObjId));
                   }
@@ -222,7 +238,6 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                   previousActionDuration = 0;
                   break;
                
-               // --- SPAWN ---
                case InteractionType.SPAWN:
                    if (effect.spawnActorId && effect.spawnX !== undefined && effect.spawnY !== undefined) {
                        const newObj: LevelObject = {
@@ -238,7 +253,6 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                    previousActionDuration = 0;
                    break;
                
-               // --- SWAP ---
                case InteractionType.SWAP:
                     if (effect.spawnActorId) {
                         setObjects(prev => prev.map(o => {
@@ -251,13 +265,10 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                     previousActionDuration = 0;
                     break;
 
-               // --- ANIM (Play Visual IN PLACE) ---
                case InteractionType.PLAY_ANIM:
                    if (effect.spawnActorId) {
-                       // Calculate duration for THEN to wait
                        const actor = getActor(effect.spawnActorId);
                        if (actor && actor.frames && actor.frames.length > 1) {
-                           // 100ms per frame. Add buffer to ensure visual completion.
                            previousActionDuration = (actor.frames.length * 100) + 100; 
                        } else {
                            previousActionDuration = 0;
@@ -304,13 +315,11 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
       }
   };
 
-  // --- TRIGGER: START & TIMER ---
   useEffect(() => {
       if (status !== 'PLAYING') return; 
 
       const activeRules = getActiveRules();
 
-      // 1. START TRIGGER (Runs once per scene reset)
       const startRules = activeRules.filter(r => r.trigger === RuleTrigger.START);
       
       startRules.forEach(rule => {
@@ -320,7 +329,6 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
           }
       });
 
-      // 2. TIMER TRIGGER (Runs interval)
       const timerRules = activeRules.filter(r => r.trigger === RuleTrigger.TIMER);
 
       const interval = setInterval(() => {
@@ -333,7 +341,6 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                         executeRuleEffects(rule.id, rule.effects, t.id, null, rule.soundId);
                    });
                } else if (!rule.subjectId) {
-                   // Allow global timers
                }
           });
       }, 2000);
@@ -341,7 +348,6 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
       return () => clearInterval(interval);
   }, [activeSceneId, status, objects.length]); 
 
-  // AABB Collision with Buffer (Hysteresis) and Scale Support
   const checkCollision = (
       rect1: {x: number, y: number, scale?: number}, 
       rect2: {x: number, y: number, scale?: number}, 
@@ -358,8 +364,9 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
       );
   };
 
-  // --- TRIGGER: CLICK ---
   const handleMouseDown = async (e: React.MouseEvent, obj: LevelObject) => {
+      resumeAudioContext(); // Resume on interaction
+
       if (status !== 'PLAYING') return;
       e.stopPropagation();
 
@@ -372,9 +379,6 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
 
           ruleTriggered = true;
           executingRuleIds.current.add(rule.id);
-
-          // Removed synchronous destruction check here.
-          // Now handled fully in executeRuleEffects.
 
           await executeRuleEffects(rule.id, rule.effects, obj.id, null, rule.soundId);
           executingRuleIds.current.delete(rule.id);
@@ -391,7 +395,6 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
       }
   };
 
-  // --- TRIGGER: MOVE & COLLISION ---
   const handleMouseMove = (e: React.MouseEvent) => {
       if (!draggingId || status !== 'PLAYING') return;
 
@@ -407,14 +410,11 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
 
       const mySize = ACTOR_SIZE * (movingObj.scale || 1);
 
-      // Bound Check with Size
       newX = Math.max(0, Math.min(newX, SCENE_WIDTH - mySize));
       newY = Math.max(0, Math.min(newY, SCENE_HEIGHT - mySize));
 
       let allowMove = true;
-      // idsToDestroy is now unused for immediate removal, handled async in executeRuleEffects.
-      // However, we might still want to block movement if needed.
-
+      
       for (const other of objects) {
           if (other.id === draggingId) continue;
 
@@ -447,14 +447,8 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                           if (hasBlock || hasPush) allowMove = false;
 
                           if (!executingRuleIds.current.has(rule.id)) {
-                              // Removed synchronous destruction check here.
                               
-                              if (rule.soundId && !executingRuleIds.current.has(rule.id)) {
-                                   playSound(rule.soundId);
-                              }
-
-                              // Check if effects exist to trigger async execution
-                              if (rule.effects.length > 0) {
+                              if (rule.effects.length > 0 || rule.soundId) {
                                   executingRuleIds.current.add(rule.id);
                                   
                                   executeRuleEffects(rule.id, rule.effects, movingObj.id, other.id, rule.soundId)
@@ -509,6 +503,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                         backgroundColor: gameData.backgroundColor,
                         cursor: 'default'
                     }}
+                    onMouseDown={resumeAudioContext}
                     onMouseMove={handleMouseMove}
                     onMouseUp={handleMouseUp}
                     onMouseLeave={handleMouseUp}
