@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { GameData, Rule, InteractionType, RuleTrigger, Sound } from '../types';
 import { TRIGGER_MAGNETS, EFFECT_MAGNETS, SCENE_WIDTH, SCENE_HEIGHT } from '../constants';
-import { Trash2, Square, ArrowRight, Trophy, HelpCircle, Hand, Eye, DoorOpen, Utensils, Skull, Puzzle, Ban, RotateCw, Globe, MapPin, X, Timer, ChevronsRight, Flag, Hourglass, Sparkles, Crosshair, Volume2, VolumeX, Clock } from 'lucide-react';
+import { Trash2, Square, ArrowRight, Trophy, HelpCircle, Hand, Eye, DoorOpen, Utensils, Skull, Puzzle, Ban, RotateCw, Globe, MapPin, X, Timer, ChevronsRight, Flag, Hourglass, Sparkles, Crosshair, Volume2, VolumeX, Edit3, Plus, RefreshCw, Clapperboard, ArrowDown, Repeat } from 'lucide-react';
 import { SoundRecorder } from './SoundRecorder';
 
 interface RuleEditorProps {
@@ -15,15 +15,25 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
   const [isDraggingOverBoard, setIsDraggingOverBoard] = useState(false);
   const [viewScope, setViewScope] = useState<'GLOBAL' | 'LOCAL'>('GLOBAL');
   
-  // State for Position Picker Modal
+  // State for Position Picker Modal (Only for SPAWN)
   const [pickingLocationFor, setPickingLocationFor] = useState<{ruleId: string, effectIndex: number} | null>(null);
+  
+  // State for Selection Modal (Spawn/Swap/Anim -> Actor, Change Scene -> Scene)
+  const [selectionModal, setSelectionModal] = useState<{
+    ruleId: string;
+    effectIndex: number;
+    type: 'ACTOR' | 'SCENE';
+    label: string; // "SELECT ANIMATION" etc
+    allowTargetSelection?: boolean; // For SWAP/ANIM (Subject vs Object)
+    currentTarget?: 'SUBJECT' | 'OBJECT';
+    subjectActorId?: string; // To show preview
+    objectActorId?: string; // To show preview
+    allowLoop?: boolean; // For ANIM
+    currentLoop?: boolean;
+  } | null>(null);
   
   // State for Sound Modal
   const [recordingForRuleId, setRecordingForRuleId] = useState<string | null>(null);
-
-  // State for Duration Picker Modal (NEW)
-  const [settingDurationForRuleId, setSettingDurationForRuleId] = useState<string | null>(null);
-  const [tempDuration, setTempDuration] = useState<number>(1);
 
   const activeScopeId = viewScope === 'GLOBAL' ? 'GLOBAL' : currentSceneId;
   const filteredRules = gameData.rules.filter(r => r.scope === activeScopeId);
@@ -36,7 +46,6 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
           case 'hand': return <Hand size={20} strokeWidth={3} />;
           case 'flag': return <Flag size={20} strokeWidth={3} />;
           case 'hourglass': return <Hourglass size={20} strokeWidth={3} />;
-          case 'clock': return <Clock size={20} strokeWidth={3} />;
           case 'square': return <Square size={20} strokeWidth={3} />;
           case 'utensils': return <Utensils size={20} strokeWidth={3} />;
           case 'arrow-right': return <ArrowRight size={20} strokeWidth={3} />;
@@ -46,6 +55,8 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
           case 'ban': return <Ban size={32} strokeWidth={4} />;
           case 'timer': return <Timer size={20} strokeWidth={3} />;
           case 'sparkles': return <Sparkles size={20} strokeWidth={3} />;
+          case 'refresh': return <RefreshCw size={20} strokeWidth={3} />;
+          case 'film': return <Clapperboard size={20} strokeWidth={3} />;
           default: return <HelpCircle size={20} />;
       }
   };
@@ -60,19 +71,13 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
       if (type === "NEW_TRIGGER_MAGNET") {
           const trigger = e.dataTransfer.getData("trigger") as RuleTrigger;
           
-          // Default durations: DELAY = 1s, TIMER = 2s
-          let defaultDuration = undefined;
-          if (trigger === RuleTrigger.DELAY) defaultDuration = 1000;
-          if (trigger === RuleTrigger.TIMER) defaultDuration = 2000;
-
           const newRule: Rule = {
               id: Math.random().toString(36).substr(2, 9),
               scope: activeScopeId,
               trigger: trigger,
               subjectId: '', 
               objectId: '', 
-              effects: [], // Start empty
-              delayDuration: defaultDuration
+              effects: [] // Start empty
           };
           onUpdateRules([...gameData.rules, newRule]);
       }
@@ -90,19 +95,6 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
               if (slot === 'subject' || slot === 'object') {
                 onUpdateRules(gameData.rules.map(r => r.id === ruleId ? { ...r, [slot === 'subject' ? 'subjectId' : 'objectId']: actorId } : r));
               }
-              // Handle SPAWN actor slot
-              if (slot === 'effects' && typeof effectIndex === 'number') {
-                  onUpdateRules(gameData.rules.map(r => {
-                      if (r.id === ruleId) {
-                          const newEffects = [...r.effects];
-                          if (newEffects[effectIndex].type === InteractionType.SPAWN) {
-                              newEffects[effectIndex] = { ...newEffects[effectIndex], spawnActorId: actorId };
-                          }
-                          return { ...r, effects: newEffects };
-                      }
-                      return r;
-                  }));
-              }
           }
       }
       else if (type === "NEW_EFFECT_MAGNET") {
@@ -110,7 +102,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
           if (slot === 'effects') {
              onUpdateRules(gameData.rules.map(r => {
                  if (r.id === ruleId) {
-                     return { ...r, effects: [...r.effects, { type: interaction }] };
+                     return { ...r, effects: [...r.effects, { type: interaction, target: 'SUBJECT' }] };
                  }
                  return r;
              }));
@@ -118,18 +110,6 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
       }
       else if (type === "NOT_STICKER" && slot === 'trigger_modifier') {
           onUpdateRules(gameData.rules.map(r => r.id === ruleId ? { ...r, invert: !r.invert } : r));
-      }
-  };
-
-  const handleSaveDuration = () => {
-      if (settingDurationForRuleId) {
-          onUpdateRules(gameData.rules.map(r => {
-              if (r.id === settingDurationForRuleId) {
-                  return { ...r, delayDuration: tempDuration * 1000 }; // Save in ms
-              }
-              return r;
-          }));
-          setSettingDurationForRuleId(null);
       }
   };
 
@@ -152,20 +132,28 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
       return gameData.actors.find(a => a.id === id)?.imageData;
   };
 
-  const cycleSceneTarget = (ruleId: string, effectIndex: number, currentTarget?: string) => {
-      const sceneIds = gameData.scenes.map(s => s.id);
-      const currentIdx = currentTarget ? sceneIds.indexOf(currentTarget) : -1;
-      const nextIdx = (currentIdx + 1) % sceneIds.length;
-      const nextId = sceneIds[nextIdx];
-      
+  const handleSelectionSave = (selectedId: string) => {
+      if (!selectionModal) return;
+      const { ruleId, effectIndex, type, currentTarget, currentLoop } = selectionModal;
+
       onUpdateRules(gameData.rules.map(r => {
           if (r.id === ruleId) {
               const newEffects = [...r.effects];
-              newEffects[effectIndex] = { ...newEffects[effectIndex], targetSceneId: nextId };
+              if (type === 'ACTOR') {
+                  newEffects[effectIndex] = { 
+                      ...newEffects[effectIndex], 
+                      spawnActorId: selectedId,
+                      target: currentTarget || 'SUBJECT',
+                      isLoop: currentLoop
+                  };
+              } else {
+                  newEffects[effectIndex] = { ...newEffects[effectIndex], targetSceneId: selectedId };
+              }
               return { ...r, effects: newEffects };
           }
           return r;
       }));
+      setSelectionModal(null);
   };
 
   const setSpawnLocation = (x: number, y: number) => {
@@ -202,12 +190,9 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
       setRecordingForRuleId(null);
   };
 
-  const getTriggerLabel = (rule: Rule) => {
-      const { trigger, invert, delayDuration } = rule;
+  const getTriggerLabel = (trigger: RuleTrigger, invert?: boolean) => {
       if (trigger === RuleTrigger.START) return "GAME STARTS";
-      // Dynamic Label for TIMER
-      if (trigger === RuleTrigger.TIMER) return `EVERY ${ (delayDuration || 2000) / 1000 }s`;
-      if (trigger === RuleTrigger.DELAY) return `WAIT ${ (delayDuration || 1000) / 1000 }s`;
+      if (trigger === RuleTrigger.TIMER) return "EVERY 2 SEC";
       if (trigger === RuleTrigger.COLLISION) return invert ? "TOUCHING" : "TOUCHES";
       return "IS CLICKED";
   };
@@ -223,34 +208,85 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
           />
       )}
 
-      {/* --- MODAL: DURATION PICKER --- */}
-      {settingDurationForRuleId && (
-          <div className="absolute inset-0 z-50 bg-black/50 flex items-center justify-center backdrop-blur-sm animate-in fade-in">
-              <div className="bg-white p-6 border-4 border-black rounded-xl shadow-2xl flex flex-col items-center gap-4 sketch-box w-80">
-                  <div className="w-16 h-16 bg-[#fb923c] border-2 border-black rounded-full flex items-center justify-center mb-2">
-                      <Clock size={40} className="text-white" />
-                  </div>
-                  <h3 className="font-bold text-2xl font-['Gochi_Hand']">HOW LONG?</h3>
-                  
-                  <div className="flex items-center gap-2 w-full justify-center">
-                      <input 
-                          type="number" 
-                          min="0.1"
-                          step="0.1"
-                          value={tempDuration}
-                          onChange={(e) => setTempDuration(parseFloat(e.target.value))}
-                          className="text-4xl font-bold w-24 text-center border-b-4 border-black bg-transparent outline-none p-1 font-['Space_Mono']"
-                          autoFocus
-                      />
-                      <span className="text-xl font-bold mt-2">seconds</span>
-                  </div>
+      {/* --- MODAL: SELECTION (ACTOR / SCENE) --- */}
+      {selectionModal && (
+        <div className="absolute inset-0 z-50 bg-black/50 flex items-center justify-center backdrop-blur-sm animate-in fade-in">
+            <div className="bg-white p-6 border-4 border-black rounded-xl shadow-[8px_8px_0px_rgba(0,0,0,0.5)] flex flex-col gap-4 w-[90%] max-w-md max-h-[80vh] overflow-hidden sketch-box">
+                <div className="flex justify-between items-center border-b-2 border-black pb-2">
+                    <h3 className="font-bold text-xl flex items-center gap-2 uppercase">
+                        {selectionModal.label}
+                    </h3>
+                    <button onClick={() => setSelectionModal(null)} className="hover:bg-red-100 rounded-full p-1"><X size={24}/></button>
+                </div>
 
-                  <div className="flex gap-4 mt-4 w-full">
-                      <button onClick={() => setSettingDurationForRuleId(null)} className="flex-1 sketch-btn py-2 bg-gray-100 font-bold hover:bg-gray-200">CANCEL</button>
-                      <button onClick={handleSaveDuration} className="flex-1 sketch-btn py-2 bg-[#fb923c] font-bold hover:bg-orange-300">SAVE</button>
-                  </div>
-              </div>
-          </div>
+                {/* TARGET SELECTION TOGGLE (FOR SWAP / ANIM) */}
+                {selectionModal.allowTargetSelection && (
+                    <div className="flex gap-4 justify-center py-2 bg-gray-100 rounded-lg border-2 border-black/10">
+                        <button 
+                            onClick={() => setSelectionModal({...selectionModal, currentTarget: 'SUBJECT'})}
+                            className={`flex flex-col items-center p-2 rounded border-2 transition-all ${selectionModal.currentTarget === 'SUBJECT' ? 'bg-white border-black shadow-md scale-105' : 'border-transparent opacity-50 hover:opacity-100'}`}
+                        >
+                            <span className="text-[10px] font-bold mb-1">THIS ONE</span>
+                            <div className="w-12 h-12 bg-white border border-black rounded flex items-center justify-center">
+                                {selectionModal.subjectActorId ? <img src={getActorImage(selectionModal.subjectActorId)} className="w-full h-full object-contain"/> : <div className="text-xs">?</div>}
+                            </div>
+                        </button>
+
+                        <div className="flex items-center text-gray-400"><ArrowRight size={20}/></div>
+
+                        <button 
+                            onClick={() => setSelectionModal({...selectionModal, currentTarget: 'OBJECT'})}
+                            className={`flex flex-col items-center p-2 rounded border-2 transition-all ${selectionModal.currentTarget === 'OBJECT' ? 'bg-white border-black shadow-md scale-105' : 'border-transparent opacity-50 hover:opacity-100'}`}
+                        >
+                            <span className="text-[10px] font-bold mb-1">THAT ONE</span>
+                            <div className="w-12 h-12 bg-white border border-black rounded flex items-center justify-center">
+                                {selectionModal.objectActorId ? <img src={getActorImage(selectionModal.objectActorId)} className="w-full h-full object-contain"/> : <div className="text-xs">?</div>}
+                            </div>
+                        </button>
+                    </div>
+                )}
+
+                {/* LOOP TOGGLE (For ANIM) */}
+                {selectionModal.allowLoop && (
+                    <div className="flex justify-center pb-2">
+                        <button 
+                            onClick={() => setSelectionModal({...selectionModal, currentLoop: !selectionModal.currentLoop})}
+                            className={`flex items-center gap-2 px-4 py-2 rounded-full border-2 transition-all ${selectionModal.currentLoop ? 'bg-purple-100 border-purple-500 text-purple-700 shadow-md' : 'bg-gray-100 border-gray-300 text-gray-400'}`}
+                        >
+                            <Repeat size={18} />
+                            <span className="font-bold text-sm">{selectionModal.currentLoop ? "LOOP: ON" : "LOOP: OFF (PLAY ONCE)"}</span>
+                        </button>
+                    </div>
+                )}
+                
+                {/* GRID SELECTION */}
+                <div className="flex-1 overflow-y-auto p-2 grid grid-cols-3 gap-4">
+                    {selectionModal.type === 'ACTOR' ? (
+                        gameData.actors.map(actor => (
+                            <button 
+                                key={actor.id}
+                                onClick={() => handleSelectionSave(actor.id)}
+                                className="aspect-square border-2 border-black rounded-lg p-2 hover:bg-yellow-100 hover:scale-105 transition-all flex flex-col items-center gap-1 shadow-sm"
+                            >
+                                <img src={actor.imageData} className="w-full h-full object-contain" />
+                                <span className="text-xs font-bold truncate w-full text-center">{actor.name}</span>
+                            </button>
+                        ))
+                    ) : (
+                        gameData.scenes.map((scene, idx) => (
+                            <button 
+                                key={scene.id}
+                                onClick={() => handleSelectionSave(scene.id)}
+                                className="aspect-square border-2 border-black rounded-lg p-2 hover:bg-purple-100 hover:scale-105 transition-all flex flex-col items-center justify-center gap-2 shadow-sm bg-gray-50"
+                            >
+                                <div className="text-4xl font-bold text-gray-400">#{idx + 1}</div>
+                                <span className="text-xs font-bold truncate w-full text-center">SCENE {idx + 1}</span>
+                            </button>
+                        ))
+                    )}
+                </div>
+            </div>
+        </div>
       )}
 
       {/* --- MODAL: POSITION PICKER --- */}
@@ -345,20 +381,10 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                             <div className="flex items-center gap-2 relative group">
                                 <div className="font-['Space_Mono'] font-bold text-sm text-gray-400">WHEN</div>
                                 <div 
-                                    className="relative group cursor-pointer"
+                                    className="relative group"
                                     onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('scale-110'); }}
                                     onDragLeave={(e) => { e.currentTarget.classList.remove('scale-110'); }}
                                     onDrop={(e) => { e.currentTarget.classList.remove('scale-110'); handleSlotDrop(e, rule.id, 'trigger_modifier'); }}
-                                    // CLICK HANDLER FOR DURATION MODAL (TIMER & DELAY)
-                                    onClick={() => { 
-                                        if(rule.trigger === RuleTrigger.DELAY || rule.trigger === RuleTrigger.TIMER) {
-                                            // Default to 2s for Timer, 1s for Delay if undefined
-                                            const defaultVal = rule.trigger === RuleTrigger.TIMER ? 2000 : 1000;
-                                            setTempDuration((rule.delayDuration || defaultVal) / 1000);
-                                            setSettingDurationForRuleId(rule.id);
-                                        } 
-                                    }}
-                                    title={rule.trigger === RuleTrigger.DELAY || rule.trigger === RuleTrigger.TIMER ? "Click to set duration" : ""}
                                 >
                                     <div className="w-12 h-12 border-2 border-black rounded-full flex items-center justify-center" style={{ backgroundColor: TRIGGER_MAGNETS.find(m => m.type === rule.trigger)?.color || '#fff' }}>
                                         {getIcon(TRIGGER_MAGNETS.find(m => m.type === rule.trigger)?.icon || 'help')}
@@ -367,7 +393,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                     
                                     {/* --- SOUND BUTTON HOVER --- */}
                                     <button 
-                                        onClick={(e) => { e.stopPropagation(); setRecordingForRuleId(rule.id); }}
+                                        onClick={() => setRecordingForRuleId(rule.id)}
                                         className={`absolute -bottom-2 -left-2 w-8 h-8 rounded-full border-2 border-black flex items-center justify-center shadow-sm hover:scale-110 transition-transform z-20 ${rule.soundId ? 'bg-green-400' : 'bg-gray-200 hover:bg-green-200'}`}
                                         title={rule.soundId ? "Change Sound" : "Add Sound Effect"}
                                     >
@@ -377,20 +403,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                 </div>
                             </div>
 
-                            {/* Subject Slot - Hidden for START, DELAY, and Global TIMER */}
-                            {rule.trigger !== RuleTrigger.START && rule.trigger !== RuleTrigger.DELAY && rule.trigger !== RuleTrigger.TIMER && (
-                                <div className={`w-16 h-16 border-2 border-dashed ${rule.subjectId ? 'border-black bg-white' : 'border-gray-300 bg-gray-100'} rounded-lg flex items-center justify-center overflow-hidden relative`} onDragOver={(e) => {e.preventDefault(); e.currentTarget.classList.add('bg-blue-100')}} onDragLeave={(e)=>e.currentTarget.classList.remove('bg-blue-100')} onDrop={(e)=>{e.currentTarget.classList.remove('bg-blue-100'); handleSlotDrop(e, rule.id, 'subject')}}>
-                                    {rule.subjectId ? <img src={getActorImage(rule.subjectId)} className="w-full h-full object-contain" /> : <span className="text-xs text-gray-400 font-bold">WHO?</span>}
-                                </div>
-                            )}
-                            
-                            {/* Special Subject Handling for TIMER (Allowed but optional in some designs, here we keep it hidden based on previous visual reqs for clean start/timers, or we can enable it. 
-                                User request "do same for starter: TIMER" implies customizing duration. 
-                                In current UI code `rule.trigger !== RuleTrigger.TIMER` hides the WHO slot. 
-                                If you want TIMER to apply to specific objects (e.g. "Every 2s [Enemy] -> Jump"), remove TIMER from this condition.
-                                For now, I will enable the WHO slot for TIMER as it's useful for "Every X sec [Actor] does [Effect]"
-                            */}
-                            {rule.trigger === RuleTrigger.TIMER && (
+                            {rule.trigger !== RuleTrigger.START && (
                                 <div className={`w-16 h-16 border-2 border-dashed ${rule.subjectId ? 'border-black bg-white' : 'border-gray-300 bg-gray-100'} rounded-lg flex items-center justify-center overflow-hidden relative`} onDragOver={(e) => {e.preventDefault(); e.currentTarget.classList.add('bg-blue-100')}} onDragLeave={(e)=>e.currentTarget.classList.remove('bg-blue-100')} onDrop={(e)=>{e.currentTarget.classList.remove('bg-blue-100'); handleSlotDrop(e, rule.id, 'subject')}}>
                                     {rule.subjectId ? <img src={getActorImage(rule.subjectId)} className="w-full h-full object-contain" /> : <span className="text-xs text-gray-400 font-bold">WHO?</span>}
                                 </div>
@@ -398,7 +411,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
 
                             <div className="font-['Space_Mono'] font-bold text-sm text-gray-400 flex flex-col items-center px-2">
                                 {rule.invert && <span className="text-red-500 font-bold text-lg animate-pulse">IS NOT</span>}
-                                <span>{getTriggerLabel(rule)}</span>
+                                <span>{getTriggerLabel(rule.trigger, rule.invert)}</span>
                             </div>
 
                             {rule.trigger === RuleTrigger.COLLISION && (
@@ -415,33 +428,141 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                             {rule.effects.length === 0 && <div className="absolute inset-0 flex items-center justify-center pointer-events-none"><span className="text-xs text-gray-400 font-bold animate-pulse">DRAG EFFECTS HERE</span></div>}
 
                             {rule.effects.map((effect, idx) => {
-                                if (effect.type === InteractionType.THEN) {
+                                
+                                // --- GENERIC ACTOR SELECT CARD (SPAWN, SWAP, ANIM) ---
+                                if (effect.type === InteractionType.SPAWN || effect.type === InteractionType.SWAP || effect.type === InteractionType.PLAY_ANIM) {
+                                    
+                                    const isSpawn = effect.type === InteractionType.SPAWN;
+                                    const isSwap = effect.type === InteractionType.SWAP;
+                                    const isAnim = effect.type === InteractionType.PLAY_ANIM;
+
+                                    const label = isSpawn ? "SPAWN" : isSwap ? "SWAP" : "ANIM";
+                                    const colorClass = isSpawn ? "purple" : isSwap ? "pink" : "fuchsia";
+                                    const bgColor = isSpawn ? "bg-purple-100" : isSwap ? "bg-pink-100" : "bg-fuchsia-100";
+                                    const borderColor = isSpawn ? "border-purple-500" : isSwap ? "border-pink-500" : "border-fuchsia-500";
+                                    const textColor = isSpawn ? "text-purple-600" : isSwap ? "text-pink-600" : "text-fuchsia-600";
+                                    
+                                    const Icon = isSpawn ? Sparkles : isSwap ? RefreshCw : Clapperboard;
+                                    
+                                    // Determine Target Icon for visual feedback (Swap/Anim)
+                                    const targetIcon = effect.target === 'OBJECT' ? rule.objectId : rule.subjectId;
+                                    const showTarget = (isSwap || isAnim) && rule.trigger === RuleTrigger.COLLISION;
+
                                     return (
-                                        <div key={idx} className="relative group shrink-0 flex items-center justify-center w-10">
-                                             <ChevronsRight size={32} className="text-gray-400" />
-                                             <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5 w-4 h-4 flex items-center justify-center hover:scale-110"><X size={10} /></button>
+                                        <div key={idx} className="relative group shrink-0">
+                                            <div className={`flex flex-col items-center bg-white border-2 ${borderColor} rounded-lg p-2 shadow-sm h-[90px] min-w-[80px] justify-center gap-1`}>
+                                                <span className={`text-[10px] font-bold ${textColor} uppercase`}>{label}</span>
+                                                
+                                                <div className="flex gap-1 items-center">
+                                                    {/* WHO TO SWAP/ANIM (Only for Collision) */}
+                                                    {showTarget && (
+                                                        <div className="flex flex-col items-center opacity-50 scale-75">
+                                                            <div className="w-8 h-8 border border-black rounded bg-gray-100 overflow-hidden">
+                                                                {targetIcon ? <img src={getActorImage(targetIcon)} className="w-full h-full object-contain"/> : <span className="text-xs">?</span>}
+                                                            </div>
+                                                            <ArrowRight size={12} className="mt-1"/>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Actor Selector Button */}
+                                                    <button 
+                                                        onClick={() => setSelectionModal({ 
+                                                            ruleId: rule.id, 
+                                                            effectIndex: idx, 
+                                                            type: 'ACTOR',
+                                                            label: isSpawn ? "SPAWN WHAT?" : isSwap ? "SWAP WHO FOR WHAT?" : "PLAY WHICH ANIM?",
+                                                            allowTargetSelection: (isSwap || isAnim) && rule.trigger === RuleTrigger.COLLISION,
+                                                            allowLoop: isAnim,
+                                                            currentLoop: effect.isLoop || false,
+                                                            currentTarget: effect.target || 'SUBJECT',
+                                                            subjectActorId: rule.subjectId,
+                                                            objectActorId: rule.objectId
+                                                        })}
+                                                        className={`w-10 h-10 border-2 border-black rounded ${bgColor} hover:brightness-95 flex items-center justify-center transition-transform hover:scale-105 relative`}
+                                                        title={label}
+                                                    >
+                                                        {effect.spawnActorId ? (
+                                                            <img src={getActorImage(effect.spawnActorId)} className="w-full h-full object-contain" />
+                                                        ) : (
+                                                            <Icon size={20} className={textColor} strokeWidth={3} />
+                                                        )}
+                                                        {!effect.spawnActorId && <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse" />}
+                                                    </button>
+
+                                                    {/* Location Selector (Only for SPAWN) */}
+                                                    {isSpawn && effect.spawnActorId && (
+                                                        <button 
+                                                            onClick={() => setPickingLocationFor({ruleId: rule.id, effectIndex: idx})} 
+                                                            className={`w-6 h-10 border-2 border-black rounded flex items-center justify-center transition-colors ${effect.spawnX !== undefined ? 'bg-green-300' : 'bg-gray-100 hover:bg-gray-200'}`}
+                                                            title="Set Location"
+                                                        >
+                                                            <Crosshair size={14} className={effect.spawnX !== undefined ? 'text-black' : 'text-gray-400'} />
+                                                        </button>
+                                                    )}
+                                                    {/* Loop Indicator (Only for ANIM) */}
+                                                    {isAnim && effect.isLoop && (
+                                                        <div className="absolute top-0 right-0 bg-purple-600 rounded-full p-[2px] border border-white">
+                                                            <Repeat size={8} className="text-white"/>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center hover:scale-110 z-10"><X size={14} /></button>
                                         </div>
                                     );
                                 }
+
+                                // SPECIAL CARD: CHANGE SCENE
+                                if (effect.type === InteractionType.CHANGE_SCENE) {
+                                    return (
+                                        <div key={idx} className="relative group shrink-0">
+                                            <div className="flex flex-col items-center bg-white border-2 border-purple-500 rounded-lg p-2 shadow-sm h-[90px] min-w-[80px] justify-center gap-1">
+                                                <span className="text-[10px] font-bold text-purple-600 uppercase">GOTO</span>
+                                                
+                                                <button 
+                                                    onClick={() => setSelectionModal({ ruleId: rule.id, effectIndex: idx, type: 'SCENE', label: "SELECT DESTINATION" })}
+                                                    className="w-12 h-10 border-2 border-black rounded bg-purple-100 hover:bg-purple-200 flex items-center justify-center transition-transform hover:scale-105 relative"
+                                                    title="Select Destination Scene"
+                                                >
+                                                    {effect.targetSceneId ? (
+                                                        <span className="font-bold text-xl text-purple-900">
+                                                            #{gameData.scenes.findIndex(s => s.id === effect.targetSceneId) + 1}
+                                                        </span>
+                                                    ) : (
+                                                        <DoorOpen size={24} className="text-purple-600" />
+                                                    )}
+                                                    {!effect.targetSceneId && <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse" />}
+                                                </button>
+                                            </div>
+                                            <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center hover:scale-110 z-10"><X size={14} /></button>
+                                        </div>
+                                    );
+                                }
+
+                                // SPECIAL CARD: THEN (TIMER)
+                                if (effect.type === InteractionType.THEN) {
+                                    return (
+                                        <div key={idx} className="relative group shrink-0 flex items-center justify-center px-2">
+                                             <div className="flex flex-col items-center">
+                                                <ChevronsRight size={24} className="text-gray-400" />
+                                                <span className="text-[8px] font-bold text-gray-400">WAIT</span>
+                                             </div>
+                                             <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-3 right-0 bg-red-500 text-white rounded-full p-0.5 w-4 h-4 flex items-center justify-center hover:scale-110 opacity-0 group-hover:opacity-100 transition-opacity"><X size={10} /></button>
+                                        </div>
+                                    );
+                                }
+
+                                // STANDARD EFFECT
+                                const magnet = EFFECT_MAGNETS.find(m => m.type === effect.type);
                                 return (
                                 <div key={idx} className="relative group shrink-0">
-                                    <div className="flex flex-col items-center bg-white border-2 border-green-500 rounded-lg p-1 shadow-sm min-w-[80px]">
-                                        <div className="w-8 h-8 rounded bg-green-100 border border-black flex items-center justify-center mb-1">{getIcon(EFFECT_MAGNETS.find(m => m.type === effect.type)?.icon || '')}</div>
-                                        <span className="font-bold text-[10px]">{EFFECT_MAGNETS.find(m => m.type === effect.type)?.label}</span>
-                                        
-                                        {effect.type === InteractionType.CHANGE_SCENE && (
-                                            <button onClick={() => cycleSceneTarget(rule.id, idx, effect.targetSceneId)} className="mt-1 bg-purple-100 border border-black px-1 rounded text-[10px] font-bold hover:bg-purple-200 flex items-center gap-1">SCENE {gameData.scenes.findIndex(s => s.id === effect.targetSceneId) + 1 || '?'} <RotateCw size={8}/></button>
-                                        )}
-                                        {effect.type === InteractionType.SPAWN && (
-                                            <div className="mt-1 flex items-center gap-1">
-                                                <div className="w-6 h-6 border border-dashed border-black bg-gray-100 rounded overflow-hidden" onDragOver={(e) => {e.preventDefault(); e.currentTarget.classList.add('bg-purple-200')}} onDragLeave={(e) => e.currentTarget.classList.remove('bg-purple-200')} onDrop={(e) => {e.currentTarget.classList.remove('bg-purple-200'); handleSlotDrop(e, rule.id, 'effects', idx)}} title="Drag Actor to Spawn">
-                                                    {effect.spawnActorId ? <img src={getActorImage(effect.spawnActorId)} className="w-full h-full object-contain" /> : <span className="text-[8px] flex items-center justify-center h-full">?</span>}
-                                                </div>
-                                                <button onClick={() => setPickingLocationFor({ruleId: rule.id, effectIndex: idx})} className={`w-6 h-6 rounded border border-black flex items-center justify-center hover:bg-purple-200 ${effect.spawnX ? 'bg-purple-300' : 'bg-white'}`} title="Set Spawn Location"><Crosshair size={12} /></button>
-                                            </div>
-                                        )}
+                                    <div className="flex flex-col items-center bg-white border-2 border-green-500 rounded-lg p-2 shadow-sm h-[90px] min-w-[80px] justify-center gap-1">
+                                        <div className="w-10 h-10 rounded bg-green-100 border border-black flex items-center justify-center" style={{ backgroundColor: magnet?.color ? magnet.color + '40' : '#dcfce7' }}>
+                                            {getIcon(magnet?.icon || '')}
+                                        </div>
+                                        <span className="font-bold text-[10px] text-center leading-none mt-1">{magnet?.label}</span>
                                     </div>
-                                    <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5 w-5 h-5 flex items-center justify-center hover:scale-110"><X size={12} /></button>
+                                    <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center hover:scale-110 z-10"><X size={14} /></button>
                                 </div>
                                 );
                             })}

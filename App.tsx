@@ -26,13 +26,7 @@ const App: React.FC = () => {
     const stored = localStorage.getItem('sok_maker_projects');
     if (stored) {
       try {
-        const parsed = JSON.parse(stored);
-        // MIGRATION: Ensure all projects have sounds array
-        const migrated = parsed.map((p: any) => ({
-            ...p,
-            sounds: p.sounds || []
-        }));
-        setSavedProjects(migrated);
+        setSavedProjects(JSON.parse(stored));
       } catch (e) { console.error("Failed to load projects", e); }
     }
   }, []);
@@ -80,11 +74,9 @@ const App: React.FC = () => {
   };
 
   const handleLoadProject = (project: GameData) => {
-    // Ensure legacy projects have sounds
-    const loadedData = { ...project, sounds: project.sounds || [] };
-    setGameData(loadedData);
-    setSelectedActorId(loadedData.actors[0]?.id || '');
-    setCurrentSceneId(loadedData.scenes[0]?.id || 'scene_1');
+    setGameData(project);
+    setSelectedActorId(project.actors[0]?.id || '');
+    setCurrentSceneId(project.scenes[0]?.id || 'scene_1');
     setView(ToolMode.SCENE);
   };
 
@@ -269,7 +261,7 @@ const App: React.FC = () => {
   );
 
   return (
-    <div className="flex flex-col h-screen bg-[#fdfbf7] text-black font-['Gochi_Hand'] overflow-hidden">
+    <div className="flex flex-col h-screen bg-[#fdfbf7] text-black font-['Gochi_Hand'] overflow-hidden min-w-[1024px] min-h-[700px] relative">
       
       {/* HEADER */}
       <header className="h-16 px-4 flex items-center justify-between border-b-[3px] border-black bg-white relative z-20 shadow-sm shrink-0">
@@ -326,16 +318,20 @@ const App: React.FC = () => {
       </div>
 
       {/* MAIN WORKSPACE */}
-      <main className="flex-1 relative bg-[#fdfbf7] overflow-hidden flex flex-col">
+      <main className={`flex-1 relative bg-[#fdfbf7] overflow-hidden flex flex-col ${view === ToolMode.DRAW ? 'pb-0' : 'pb-32'}`}>
          <div 
             className="absolute inset-0 pointer-events-none opacity-10 z-0"
             style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'20\' height=\'20\' viewBox=\'0 0 20 20\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'%239C92AC\' fill-opacity=\'0.4\' fill-rule=\'evenodd\'%3E%3Ccircle cx=\'3\' cy=\'3\' r=\'1\'/%3E%3C/g%3E%3C/svg%3E")' }} 
          />
 
-         <div className="flex-1 w-full h-full overflow-hidden relative pb-32 z-10">
+         <div className="flex-1 w-full h-full overflow-hidden relative z-10">
             {view === ToolMode.DRAW && selectedActorId && (
                 <SpriteEditor 
                     actor={gameData.actors.find(a => a.id === selectedActorId)!}
+                    allActors={gameData.actors} // Pass all actors
+                    selectedActorId={selectedActorId}
+                    onSelectActor={setSelectedActorId}
+                    onAddActor={addActor}
                     onUpdate={updateActor}
                     onDelete={deleteActor}
                     isHero={selectedActorId === 'hero'}
@@ -368,8 +364,9 @@ const App: React.FC = () => {
          </div>
       </main>
 
-      {/* BOTTOM ACTOR STRIP */}
-      <div className="h-32 bg-[#ffbad2] border-t-[4px] border-black flex items-center px-6 gap-6 absolute bottom-0 w-full z-30 overflow-x-auto shadow-[0px_-4px_15px_rgba(0,0,0,0.1)]">
+      {/* BOTTOM ACTOR STRIP (Hidden in DRAW mode, managed by SpriteEditor) */}
+      {view !== ToolMode.DRAW && (
+      <div className="h-32 bg-[#ffbad2] border-t-[4px] border-black flex items-center px-6 gap-6 absolute bottom-0 left-0 right-0 z-30 overflow-x-auto shadow-[0px_-4px_15px_rgba(0,0,0,0.1)]">
           <button 
             onClick={addActor}
             className="h-24 w-24 flex flex-col items-center justify-center bg-white border-[3px] border-black rounded-2xl hover:bg-gray-50 flex-shrink-0 shadow-md transform hover:-rotate-3 transition-transform group"
@@ -412,6 +409,7 @@ const App: React.FC = () => {
           ))}
           <div className="w-10 flex-shrink-0"></div>
       </div>
+      )}
 
     </div>
   );

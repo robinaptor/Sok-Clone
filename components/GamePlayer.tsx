@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { GameData, InteractionType, LevelObject, RuleTrigger, RuleEffect } from '../types';
+import { GameData, InteractionType, LevelObject, RuleTrigger, RuleEffect, Actor } from '../types';
 import { SCENE_WIDTH, SCENE_HEIGHT, ACTOR_SIZE } from '../constants';
 import { Trophy, Skull, MousePointer, DoorOpen } from 'lucide-react';
 
@@ -9,6 +9,68 @@ interface GamePlayerProps {
   onExit: () => void;
   onNextScene: () => void;
 }
+
+// --- ANIMATED SPRITE COMPONENT ---
+const AnimatedSprite = ({ 
+    baseActor, 
+    playingActor, 
+    isLooping, 
+    isEphemeral,
+    onFinish 
+}: { 
+    baseActor: Actor, 
+    playingActor?: Actor, 
+    isLooping?: boolean, 
+    isEphemeral?: boolean,
+    onFinish: () => void
+}) => {
+    const [frameIdx, setFrameIdx] = useState(0);
+
+    // If an animation is active, use its frames. Otherwise use baseActor's first frame.
+    const activeFrames = playingActor?.frames && playingActor.frames.length > 0 ? playingActor.frames : [baseActor.imageData];
+    const isPlaying = !!playingActor;
+
+    useEffect(() => {
+        setFrameIdx(0);
+    }, [playingActor]);
+
+    useEffect(() => {
+        if (!isPlaying || activeFrames.length <= 1) return;
+        
+        const interval = setInterval(() => {
+            setFrameIdx(curr => {
+                const next = curr + 1;
+                if (next >= activeFrames.length) {
+                    // Animation Finished
+                    if (isLooping) {
+                        return 0; // Loop
+                    } else {
+                        // One Shot
+                        clearInterval(interval);
+                        onFinish(); // Notify parent to stop playing
+                        return curr; // Stay on last frame briefly
+                    }
+                }
+                return next;
+            });
+        }, 125); // 8 FPS
+        
+        return () => clearInterval(interval);
+    }, [activeFrames, isPlaying, isLooping, onFinish]);
+
+    // Display Logic:
+    // If playing, show active frame.
+    // If not playing, show baseActor frame 0 (Static).
+    const displayImage = isPlaying ? activeFrames[frameIdx] : (baseActor.frames?.[0] || baseActor.imageData);
+
+    return (
+        <img 
+            src={displayImage} 
+            alt={baseActor.name} 
+            className={`w-full h-full object-contain drop-shadow-sm pointer-events-none ${isEphemeral ? '' : ''}`} 
+        />
+    );
+};
 
 export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId, onExit, onNextScene }) => {
   // State to override the scene ID locally if we jump scenes
@@ -23,13 +85,8 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
   // Keep track of executing rules to prevent double-triggering same sequence instantly
   const executingRuleIds = useRef<Set<string>>(new Set());
 
-  // NEW: Keep track of active physical collisions to trigger rules only ON ENTER
+  // Keep track of active physical collisions to trigger rules only ON ENTER
   const activeCollisions = useRef<Set<string>>(new Set());
-
-  // Track timeouts and intervals for cleanup
-  // FIX: Use 'number' instead of NodeJS.Timeout for browser compatibility
-  const activeTimeouts = useRef<Set<number>>(new Set());
-  const activeIntervals = useRef<Set<number>>(new Set());
 
   // Init or Reset
   useEffect(() => { resetGame(currentSceneId); }, [currentSceneId]);
@@ -37,18 +94,24 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
   const resetGame = (sceneId: string) => {
     setActiveSceneId(sceneId);
     const scene = gameData.scenes.find(s => s.id === sceneId) || gameData.scenes[0];
-    setObjects(scene.objects.map(o => ({ ...o })));
+    setObjects(scene.objects.map(o => ({ ...o, activeAnimation: undefined })));
     setStatus('PLAYING');
     setDraggingId(null);
     executingRuleIds.current.clear();
     activeCollisions.current.clear();
-    
-    // Clear timeouts & intervals
-    activeTimeouts.current.forEach(t => clearTimeout(t));
-    activeTimeouts.current.clear();
-    activeIntervals.current.forEach(i => clearInterval(i));
-    activeIntervals.current.clear();
   };
+
+  // Clean up ephemeral objects (visual effects) automatically
+  useEffect(() => {
+      const ephemeralObjs = objects.filter(o => o.isEphemeral);
+      if (ephemeralObjs.length > 0) {
+          // Only cleanup if they are NOT playing an animation loop, OR if it's a visual FX
+          const timer = setTimeout(() => {
+              setObjects(prev => prev.filter(o => !o.isEphemeral));
+          }, 1000); 
+          return () => clearTimeout(timer);
+      }
+  }, [objects.length]); 
 
   // Internal helper to switch scenes during play
   const jumpToScene = (targetId?: string) => {
@@ -70,6 +133,16 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
 
   const getActor = useCallback((id: string) => gameData.actors.find(a => a.id === id), [gameData]);
 
+  // Callback to stop animation on an object
+  const handleAnimationFinish = (objId: string) => {
+      setObjects(prev => prev.map(o => {
+          if (o.id === objId) {
+              return { ...o, activeAnimation: undefined };
+          }
+          return o;
+      }));
+  };
+
   // Scope Filter: Get rules that apply to THIS scene OR are GLOBAL
   const getActiveRules = () => {
       return gameData.rules.filter(r => r.scope === 'GLOBAL' || r.scope === activeSceneId);
@@ -81,13 +154,15 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
       if (sound) {
           try {
               const audio = new Audio(sound.data);
-              audio.play().catch(e => console.log("Audio play blocked (user interaction required)"));
+              audio.play();
           } catch (e) { console.error("Audio play failed", e); }
       }
   };
 
   // --- ASYNC RULE EXECUTOR ---
-  const executeRuleEffects = async (ruleId: string, effects: RuleEffect[], relatedObjId: string, relatedActorId: string, soundId?: string) => {
+  // subjectObjId = The Primary Actor (Mover / Clicker)
+  // objectObjId = The Secondary Actor (Touched) - CAN BE NULL if click/start
+  const executeRuleEffects = async (ruleId: string, effects: RuleEffect[], subjectObjId: string, objectObjId: string | null, soundId?: string) => {
       
       // Play Sound Immediately if exists
       if (soundId) playSound(soundId);
@@ -98,6 +173,9 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
               await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
               continue;
           }
+
+          // Determine Target ID for SWAP/ANIM based on effect configuration
+          const targetObjId = effect.target === 'OBJECT' && objectObjId ? objectObjId : subjectObjId;
 
           // State Changes (Can be async or instant)
           switch (effect.type) {
@@ -115,6 +193,8 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                   await new Promise(resolve => setTimeout(resolve, 1000)); // Wait a bit for visual
                   jumpToScene(effect.targetSceneId);
                   break;
+               
+               // --- NEW: SPAWN ---
                case InteractionType.SPAWN:
                    if (effect.spawnActorId && effect.spawnX !== undefined && effect.spawnY !== undefined) {
                        const newObj: LevelObject = {
@@ -122,15 +202,48 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                            actorId: effect.spawnActorId,
                            x: effect.spawnX,
                            y: effect.spawnY,
-                           isLocked: false // Spawns are generally interactive
+                           isLocked: false 
                        };
                        setObjects(prev => [...prev, newObj]);
                    }
                    break;
+               
+               // --- NEW: SWAP (Transform) ---
+               // Now respects effect.target (Subject vs Object)
+               case InteractionType.SWAP:
+                    if (effect.spawnActorId) {
+                        setObjects(prev => prev.map(o => {
+                            if (o.id === targetObjId) {
+                                return { ...o, actorId: effect.spawnActorId!, activeAnimation: undefined };
+                            }
+                            return o;
+                        }));
+                    }
+                    break;
+
+               // --- NEW: ANIM (Play Visual IN PLACE) ---
+               case InteractionType.PLAY_ANIM:
+                   if (effect.spawnActorId) {
+                       setObjects(prev => prev.map(o => {
+                           if (o.id === targetObjId) {
+                               return { 
+                                   ...o, 
+                                   activeAnimation: {
+                                       playingActorId: effect.spawnActorId!,
+                                       isLoop: !!effect.isLoop,
+                                       startTime: Date.now()
+                                   }
+                               };
+                           }
+                           return o;
+                       }));
+                   }
+                   break;
+
                case InteractionType.PUSH:
                   // "Random Push" for automated things (Timer/Start)
                   setObjects(prev => prev.map(o => {
-                      if (o.id === relatedObjId) {
+                      if (o.id === targetObjId) {
                           const angle = Math.random() * Math.PI * 2;
                           const dist = 50;
                           let nx = o.x + Math.cos(angle) * dist;
@@ -146,7 +259,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
       }
   };
 
-  // --- TRIGGER: START, DELAY & TIMER ---
+  // --- TRIGGER: START & TIMER ---
   useEffect(() => {
       if (status !== 'PLAYING') return; 
 
@@ -154,67 +267,34 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
 
       // 1. START TRIGGER (Runs once per scene reset)
       const startRules = activeRules.filter(r => r.trigger === RuleTrigger.START);
+      
       startRules.forEach(rule => {
+          // We ensure START rules run exactly once per reset by using the ref
           if (!executingRuleIds.current.has(rule.id)) {
                executingRuleIds.current.add(rule.id); 
-               if (rule.soundId) playSound(rule.soundId);
-               executeRuleEffects(rule.id, rule.effects, 'GLOBAL', 'GLOBAL', rule.soundId);
+               executeRuleEffects(rule.id, rule.effects, 'GLOBAL', null, rule.soundId);
           }
       });
 
-      // 2. DELAY TRIGGER (Runs once after delay)
-      const delayRules = activeRules.filter(r => r.trigger === RuleTrigger.DELAY);
-      delayRules.forEach(rule => {
-          if (!executingRuleIds.current.has(rule.id)) {
-              executingRuleIds.current.add(rule.id); 
-              
-              // Use window.setTimeout to ensure it returns number
-              const timeoutId = window.setTimeout(() => {
-                  if(status === 'PLAYING') {
-                      if (rule.soundId) playSound(rule.soundId);
-                      executeRuleEffects(rule.id, rule.effects, 'GLOBAL', 'GLOBAL', rule.soundId);
-                  }
-              }, rule.delayDuration || 1000);
-              
-              activeTimeouts.current.add(timeoutId);
-          }
-      });
-
-      // 3. TIMER TRIGGER (Runs interval per rule)
+      // 2. TIMER TRIGGER (Runs interval)
       const timerRules = activeRules.filter(r => r.trigger === RuleTrigger.TIMER);
-      
-      timerRules.forEach(rule => {
-          // Use custom duration or default 2000ms
-          const intervalTime = rule.delayDuration || 2000;
+
+      const interval = setInterval(() => {
+          if (status !== 'PLAYING') return;
           
-          // Use window.setInterval to ensure it returns number
-          const intervalId = window.setInterval(() => {
-              if (status !== 'PLAYING') return;
-              
-              // Find targets if specified, else global
-              const targets = objects.filter(o => o.actorId === rule.subjectId);
-              
-              if (targets.length > 0) {
+          timerRules.forEach(rule => {
+               const targets = objects.filter(o => o.actorId === rule.subjectId);
+               if (targets.length > 0) {
                    targets.forEach(t => {
-                        if (rule.soundId) playSound(rule.soundId);
-                        executeRuleEffects(rule.id, rule.effects, t.id, t.actorId, rule.soundId);
+                        executeRuleEffects(rule.id, rule.effects, t.id, null, rule.soundId);
                    });
-              } else if (!rule.subjectId) {
-                   // Global timer
-                   if (rule.soundId) playSound(rule.soundId);
-                   // executeRuleEffects(rule.id, rule.effects, 'GLOBAL', 'GLOBAL', rule.soundId);
-              }
-          }, intervalTime);
+               } else if (!rule.subjectId) {
+                   // Allow global timers
+               }
+          });
+      }, 2000); // Every 2 seconds
 
-          activeIntervals.current.add(intervalId);
-      });
-
-      return () => {
-          activeTimeouts.current.forEach(t => clearTimeout(t));
-          activeTimeouts.current.clear();
-          activeIntervals.current.forEach(i => clearInterval(i));
-          activeIntervals.current.clear();
-      };
+      return () => clearInterval(interval);
   }, [activeSceneId, status, objects.length]); 
 
   // AABB Collision
@@ -248,9 +328,8 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
           if (immediateDestroys) {
              setObjects(prev => prev.filter(o => o.id !== obj.id));
           }
-          
-          if (rule.soundId) playSound(rule.soundId);
-          await executeRuleEffects(rule.id, rule.effects, obj.id, obj.actorId, rule.soundId);
+
+          await executeRuleEffects(rule.id, rule.effects, obj.id, null, rule.soundId);
           executingRuleIds.current.delete(rule.id);
       }
 
@@ -324,7 +403,9 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                                   e.type === InteractionType.DESTROY_OBJECT ||
                                   e.type === InteractionType.DESTROY_SUBJECT ||
                                   e.type === InteractionType.CHANGE_SCENE ||
-                                  e.type === InteractionType.SPAWN
+                                  e.type === InteractionType.SPAWN ||
+                                  e.type === InteractionType.SWAP ||
+                                  e.type === InteractionType.PLAY_ANIM
                               );
 
                               // Always try to play sound on collision
@@ -340,7 +421,8 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                                       if(e.type === InteractionType.DESTROY_SUBJECT) idsToDestroy.push(movingObj.id);
                                   });
 
-                                  executeRuleEffects(rule.id, rule.effects, movingObj.id, movingObj.actorId, rule.soundId)
+                                  // Pass BOTH objects: movingObj (Subject) and other (Object)
+                                  executeRuleEffects(rule.id, rule.effects, movingObj.id, other.id, rule.soundId)
                                       .then(() => {
                                           executingRuleIds.current.delete(rule.id);
                                       });
@@ -399,6 +481,8 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                     <div className="w-full h-full relative" style={{ transform: 'scale(1)', transformOrigin: 'top left' }}>
                         {objects.map(obj => {
                             const actor = getActor(obj.actorId);
+                            const playingActor = obj.activeAnimation ? getActor(obj.activeAnimation.playingActorId) : undefined;
+                            
                             if (!actor) return null;
                             const isDragging = draggingId === obj.id;
 
@@ -406,7 +490,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                                 <div
                                     key={obj.id}
                                     onMouseDown={(e) => handleMouseDown(e, obj)}
-                                    className={`absolute flex items-center justify-center select-none ${!obj.isLocked ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                                    className={`absolute flex items-center justify-center select-none ${!obj.isLocked ? 'cursor-grab active:cursor-grabbing' : ''} ${obj.isEphemeral ? 'pointer-events-none' : ''}`}
                                     style={{ 
                                         left: obj.x, 
                                         top: obj.y, 
@@ -414,13 +498,17 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                                         height: ACTOR_SIZE,
                                         zIndex: isDragging ? 50 : 10,
                                         transition: isDragging ? 'none' : 'transform 0.1s',
-                                        transform: isDragging ? 'scale(1.1)' : 'scale(1)'
+                                        transform: isDragging ? 'scale(1.1)' : 'scale(1)',
+                                        opacity: obj.isEphemeral ? 0.9 : 1
                                     }}
                                 >
-                                    <img 
-                                        src={actor.imageData} 
-                                        alt={actor.name} 
-                                        className="w-full h-full object-contain drop-shadow-sm pointer-events-none" 
+                                    {/* Animated Sprite handles logic: Static if not playing, Animates if playing */}
+                                    <AnimatedSprite 
+                                        baseActor={actor} 
+                                        playingActor={playingActor} 
+                                        isLooping={obj.activeAnimation?.isLoop} 
+                                        isEphemeral={obj.isEphemeral}
+                                        onFinish={() => handleAnimationFinish(obj.id)}
                                     />
                                 </div>
                             );

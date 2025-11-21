@@ -1,3 +1,5 @@
+
+
 import { Actor, GameData, InteractionType, RuleTrigger } from './types';
 
 // Scene Dimensions in Pixels
@@ -46,6 +48,8 @@ export const INTERACTION_LABELS: Record<InteractionType, string> = {
   [InteractionType.WIN]: 'Wins',
   [InteractionType.CHANGE_SCENE]: 'Goes to Next Scene',
   [InteractionType.SPAWN]: 'Appears',
+  [InteractionType.SWAP]: 'Transforms',
+  [InteractionType.PLAY_ANIM]: 'Plays Anim',
   [InteractionType.NOTHING]: 'Ignores',
   [InteractionType.THEN]: 'Then...'
 };
@@ -55,7 +59,6 @@ export const TRIGGER_MAGNETS = [
     { type: RuleTrigger.COLLISION, label: 'TOUCH', color: '#fcd34d', icon: 'eye' }, // Yellow
     { type: RuleTrigger.CLICK, label: 'CLICK', color: '#fcd34d', icon: 'hand' }, // Yellow
     { type: RuleTrigger.START, label: 'START', color: '#86efac', icon: 'flag' }, // Green
-    { type: RuleTrigger.DELAY, label: 'WAIT', color: '#fb923c', icon: 'clock' }, // Orange
     { type: RuleTrigger.TIMER, label: 'TIMER', color: '#93c5fd', icon: 'hourglass' }, // Blue
 ];
 
@@ -64,7 +67,12 @@ export const EFFECT_MAGNETS = [
     { type: InteractionType.PUSH, label: 'PUSH', color: '#4ade80', icon: 'arrow-right' }, // Green
     { type: InteractionType.DESTROY_OBJECT, label: 'EAT', color: '#ef4444', icon: 'utensils' }, // Red
     { type: InteractionType.DESTROY_SUBJECT, label: 'DIE', color: '#ef4444', icon: 'skull' }, // Red
-    { type: InteractionType.SPAWN, label: 'SPAWN', color: '#d8b4fe', icon: 'sparkles' }, // Purple/Magic
+    
+    // The 3 Special Effects
+    { type: InteractionType.SPAWN, label: 'SPAWN', color: '#d8b4fe', icon: 'sparkles' }, // Purple
+    { type: InteractionType.SWAP, label: 'SWAP', color: '#f0abfc', icon: 'refresh' }, // Pink
+    { type: InteractionType.PLAY_ANIM, label: 'ANIM', color: '#e879f9', icon: 'film' }, // Magenta
+
     { type: InteractionType.CHANGE_SCENE, label: 'DOOR', color: '#c084fc', icon: 'door-open' }, // Purple
     { type: InteractionType.WIN, label: 'WIN', color: '#facc15', icon: 'trophy' }, // Gold
     { type: InteractionType.THEN, label: 'THEN', color: '#9ca3af', icon: 'timer' }, // Grey/Timer
