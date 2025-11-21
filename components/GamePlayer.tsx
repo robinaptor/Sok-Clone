@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { GameData, InteractionType, LevelObject, RuleTrigger, RuleEffect, Actor } from '../types';
 import { SCENE_WIDTH, SCENE_HEIGHT, ACTOR_SIZE } from '../constants';
-import { Trophy, Skull, MousePointer, DoorOpen } from 'lucide-react';
+import { Trophy, Skull, MousePointer, DoorOpen, Loader2, Play, Volume2 } from 'lucide-react';
 
 interface GamePlayerProps {
   gameData: GameData;
@@ -9,6 +9,25 @@ interface GamePlayerProps {
   onExit: () => void;
   onNextScene: () => void;
 }
+
+// --- HELPER: Base64 to ArrayBuffer ---
+const base64ToArrayBuffer = (base64: string) => {
+    try {
+        // Handle data URI scheme if present (e.g. "data:audio/wav;base64,.....")
+        const content = base64.includes(',') ? base64.split(',')[1] : base64;
+        
+        const binaryString = window.atob(content);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        return bytes.buffer;
+    } catch (e) {
+        console.error("Base64 decode error", e);
+        return new ArrayBuffer(0);
+    }
+};
 
 // --- ANIMATED SPRITE COMPONENT ---
 const AnimatedSprite = ({ 
@@ -45,16 +64,12 @@ const AnimatedSprite = ({
             if (!lastTimeRef.current) lastTimeRef.current = time;
             const deltaTime = time - lastTimeRef.current;
             
-            // 100ms per frame (~10 FPS)
             if (deltaTime > 100) {
                 setFrameIdx(curr => {
                     const next = curr + 1;
                     if (next >= activeFrames.length) {
-                        if (isLooping) {
-                            return 0; 
-                        } else {
-                            return curr; 
-                        }
+                        if (isLooping) return 0;
+                        return curr;
                     }
                     return next;
                 });
@@ -81,7 +96,13 @@ const AnimatedSprite = ({
 export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId, onExit, onNextScene }) => {
   const [activeSceneId, setActiveSceneId] = useState(currentSceneId);
   const [objects, setObjects] = useState<LevelObject[]>([]);
-  const [status, setStatus] = useState<'PLAYING' | 'WON' | 'LOST' | 'TRANSITION'>('PLAYING');
+  
+  // STATES: 
+  // LOADING: Decoding audio
+  // READY: Audio decoded, waiting for user click to resume AudioContext
+  // PLAYING: Game active
+  const [status, setStatus] = useState<'LOADING' | 'READY' | 'PLAYING' | 'WON' | 'LOST' | 'TRANSITION'>('LOADING');
+  const [loadedSoundCount, setLoadedSoundCount] = useState(0);
   
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const dragOffset = useRef({ x: 0, y: 0 });
@@ -102,21 +123,30 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       const ctx = new AudioContextClass();
       audioContextRef.current = ctx;
+      console.log("AudioContext initialized", ctx.state);
 
       const loadSounds = async () => {
-          if (!gameData.sounds) return;
-          for (const sound of gameData.sounds) {
+          const sounds = gameData.sounds || [];
+          console.log(`Loading ${sounds.length} sounds...`, sounds.map(s => s.id));
+          
+          let count = 0;
+          for (const sound of sounds) {
               if (!sound.data) continue;
               try {
-                  // Fetch handles data-URIs correctly and efficiently
-                  const res = await fetch(sound.data);
-                  const arrayBuffer = await res.arrayBuffer();
-                  const decoded = await ctx.decodeAudioData(arrayBuffer);
-                  audioBuffers.current.set(sound.id, decoded);
+                  const arrayBuffer = base64ToArrayBuffer(sound.data);
+                  if (arrayBuffer.byteLength > 0) {
+                      const decoded = await ctx.decodeAudioData(arrayBuffer);
+                      audioBuffers.current.set(sound.id, decoded);
+                      count++;
+                  }
               } catch (e) {
                   console.warn("Failed to preload sound:", sound.id, e);
               }
           }
+          setLoadedSoundCount(count);
+          console.log(`Finished loading. ${count} sounds ready.`);
+          // Transition to READY (Waiting for user click) instead of straight to PLAYING
+          setStatus('READY');
       };
 
       loadSounds();
@@ -126,21 +156,40 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
       };
   }, [gameData.sounds]);
 
+  const startGame = async () => {
+      console.log("Starting Game. Resuming AudioContext...");
+      if (audioContextRef.current) {
+          try {
+            await audioContextRef.current.resume();
+            console.log("AudioContext resumed:", audioContextRef.current.state);
+          } catch(e) {
+              console.error("Failed to resume audio context", e);
+          }
+      }
+      setStatus('PLAYING');
+  };
+
   const playSound = (soundId: string) => {
       const ctx = audioContextRef.current;
       if (!ctx) return;
-
-      // Try to resume if suspended (common if play started via timer without click)
-      if (ctx.state === 'suspended') {
-          ctx.resume().catch(() => {});
-      }
+      
+      // Extra check to resume if suspended (can happen if tab was backgrounded)
+      if (ctx.state === 'suspended') ctx.resume();
 
       const buffer = audioBuffers.current.get(soundId);
       if (buffer) {
-          const source = ctx.createBufferSource();
-          source.buffer = buffer;
-          source.connect(ctx.destination);
-          source.start(0);
+          try {
+              const source = ctx.createBufferSource();
+              source.buffer = buffer;
+              source.connect(ctx.destination);
+              source.start(0);
+              console.log("Playing sound:", soundId);
+          } catch(e) {
+              console.error("Error playing sound", e);
+          }
+      } else {
+          console.warn("Sound buffer not found for ID:", soundId);
+          console.log("Available buffers:", Array.from(audioBuffers.current.keys()));
       }
   };
 
@@ -151,7 +200,10 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
     setActiveSceneId(sceneId);
     const scene = gameData.scenes.find(s => s.id === sceneId) || gameData.scenes[0];
     setObjects(scene.objects.map(o => ({ ...o, activeAnimation: undefined })));
-    setStatus('PLAYING');
+    
+    // Maintain LOADING/READY state if not yet started
+    setStatus(prev => (prev === 'LOADING' || prev === 'READY') ? prev : 'PLAYING');
+    
     setDraggingId(null);
     executingRuleIds.current.clear();
     activeCollisions.current.clear();
@@ -209,16 +261,36 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
               continue;
           }
 
-          const targetObjId = effect.target === 'OBJECT' && objectObjId ? objectObjId : subjectObjId;
-
-          // Remote Trigger Logic
           let targets: string[] = [];
-          // Use objectsRef.current to get the absolute latest list of objects
-          if (effect.target === 'OBJECT' && !objectObjId && effect.spawnActorId) {
-              targets = objectsRef.current.filter(o => o.actorId === effect.spawnActorId).map(o => o.id);
+          
+          // Special handling for remote effects
+          if (effect.spawnActorId && (
+                (effect.target === 'OBJECT' && !objectObjId) || 
+                (effect.type === InteractionType.SPAWN) || 
+                (effect.type === InteractionType.SWAP && effect.target === 'OBJECT' && !objectObjId)
+             )) {
+             if (effect.type !== InteractionType.SPAWN) {
+                 targets = objectsRef.current.filter(o => o.actorId === effect.spawnActorId).map(o => o.id);
+             }
           } else {
               const targetId = effect.target === 'OBJECT' && objectObjId ? objectObjId : subjectObjId;
               if (targetId) targets.push(targetId);
+          }
+
+          if (effect.type === InteractionType.SPAWN) {
+               if (effect.spawnActorId && effect.spawnX !== undefined && effect.spawnY !== undefined) {
+                   const newObj: LevelObject = {
+                       id: Math.random().toString(36).substr(2, 9),
+                       actorId: effect.spawnActorId,
+                       x: effect.spawnX,
+                       y: effect.spawnY,
+                       scale: 1.0,
+                       isLocked: false 
+                   };
+                   setObjects(prev => [...prev, newObj]);
+               }
+               previousActionDuration = 0;
+               continue;
           }
 
           for (const targetId of targets) {
@@ -227,55 +299,29 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                       setStatus('WON');
                       previousActionDuration = 0;
                       break;
-                      
                   case InteractionType.DESTROY_SUBJECT:
-                      // Find the actual object instance being destroyed
                       const subjInstance = objectsRef.current.find(o => o.id === subjectObjId);
-                      
-                      // Check if it is the Hero (The first actor in the list is always the Hero)
                       if (subjInstance && subjInstance.actorId === gameData.actors[0].id) {
                           setStatus('LOST');
                       }
-
                       setObjects(prev => prev.filter(o => o.id !== subjectObjId));
                       if (subjectObjId === draggingId) setDraggingId(null);
-                      
                       previousActionDuration = 0;
                       break;
-
                    case InteractionType.DESTROY_OBJECT: 
-                      // Check if the object being eaten is the hero (unlikely but possible)
                       const objInstance = objectsRef.current.find(o => o.id === targetId);
                       if (objInstance && objInstance.actorId === gameData.actors[0].id) {
                           setStatus('LOST');
                       }
-
                       setObjects(prev => prev.filter(o => o.id !== targetId));
                       previousActionDuration = 0;
                       break;
-
                    case InteractionType.CHANGE_SCENE:
                       setStatus('TRANSITION');
                       await new Promise(resolve => setTimeout(resolve, 1000)); 
                       jumpToScene(effect.targetSceneId);
                       previousActionDuration = 0;
                       break;
-                   
-                   case InteractionType.SPAWN:
-                       if (effect.spawnActorId && effect.spawnX !== undefined && effect.spawnY !== undefined) {
-                           const newObj: LevelObject = {
-                               id: Math.random().toString(36).substr(2, 9),
-                               actorId: effect.spawnActorId,
-                               x: effect.spawnX,
-                               y: effect.spawnY,
-                               scale: 1.0,
-                               isLocked: false 
-                           };
-                           setObjects(prev => [...prev, newObj]);
-                       }
-                       previousActionDuration = 0;
-                       break;
-                   
                    case InteractionType.SWAP:
                         if (effect.spawnActorId) {
                             setObjects(prev => prev.map(o => {
@@ -287,7 +333,6 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                         }
                         previousActionDuration = 0;
                         break;
-
                    case InteractionType.PLAY_ANIM:
                        if (effect.spawnActorId) {
                            const actor = getActor(effect.spawnActorId);
@@ -296,7 +341,6 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                            } else {
                                previousActionDuration = 0;
                            }
-
                            setObjects(prev => prev.map(o => {
                                if (o.id === targetId) {
                                    return { 
@@ -314,7 +358,6 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                            previousActionDuration = 0;
                        }
                        break;
-
                    case InteractionType.PUSH:
                       setObjects(prev => prev.map(o => {
                           if (o.id === targetId) {
@@ -340,23 +383,30 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
 
       const activeRules = getActiveRules();
 
+      // START RULES
       const startRules = activeRules.filter(r => r.trigger === RuleTrigger.START);
       
-      startRules.forEach(rule => {
-          if (!executingRuleIds.current.has(rule.id)) {
-               executingRuleIds.current.add(rule.id); 
-               if (rule.soundId) playSound(rule.soundId);
-               executeRuleEffects(rule.id, rule.effects, 'GLOBAL', null);
-          }
-      });
+      if (startRules.length > 0) {
+          console.log("Processing START rules...", startRules);
+          startRules.forEach(rule => {
+              if (!executingRuleIds.current.has(rule.id)) {
+                  executingRuleIds.current.add(rule.id); 
+                  if (rule.soundId) {
+                      console.log("Found Sound for Start Rule:", rule.soundId);
+                      // Small timeout to ensure AudioContext is fully awake after the click
+                      setTimeout(() => playSound(rule.soundId!), 50);
+                  }
+                  executeRuleEffects(rule.id, rule.effects, 'GLOBAL', null);
+              }
+          });
+      }
 
+      // TIMER RULES
       const timerRules = activeRules.filter(r => r.trigger === RuleTrigger.TIMER);
-
       const interval = setInterval(() => {
           if (status !== 'PLAYING') return;
           
           timerRules.forEach(rule => {
-               // Use objectsRef to avoid stale closure on objects array
                const targets = objectsRef.current.filter(o => o.actorId === rule.subjectId);
                if (targets.length > 0) {
                    targets.forEach(t => {
@@ -393,10 +443,8 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
       if (status !== 'PLAYING') return;
       e.stopPropagation();
       
-      // Ensure audio context is active on user interaction
-      if (audioContextRef.current?.state === 'suspended') {
-          await audioContextRef.current.resume();
-      }
+      // Wake up audio context on interaction just in case
+      if (audioContextRef.current?.state === 'suspended') audioContextRef.current.resume();
 
       const activeRules = getActiveRules();
       const clickRules = activeRules.filter(r => r.trigger === RuleTrigger.CLICK && r.subjectId === obj.actorId);
@@ -456,10 +504,8 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
           const pairKey = [movingObj.id, other.id].sort().join(':');
 
           if (isTouching) {
-              
               if (!activeCollisions.current.has(pairKey)) {
                   activeCollisions.current.add(pairKey);
-
                   const activeRules = getActiveRules();
                   const rules = activeRules.filter(r => 
                     r.trigger === RuleTrigger.COLLISION &&
@@ -469,21 +515,14 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
 
                   for (const rule of rules) {
                       const shouldTrigger = rule.invert ? false : true; 
-                      
                       if (shouldTrigger) {
                           const hasBlock = rule.effects.some(e => e.type === InteractionType.BLOCK);
                           const hasPush = rule.effects.some(e => e.type === InteractionType.PUSH);
-
                           if (hasBlock || hasPush) allowMove = false;
-
                           if (!executingRuleIds.current.has(rule.id)) {
-                              
-                              // PLAY SOUND IMMEDIATELY
                               if (rule.soundId) playSound(rule.soundId);
-
                               if (rule.effects.length > 0) {
                                   executingRuleIds.current.add(rule.id);
-                                  
                                   executeRuleEffects(rule.id, rule.effects, movingObj.id, other.id)
                                       .then(() => {
                                           executingRuleIds.current.delete(rule.id);
@@ -493,14 +532,12 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                       }
                   }
               } 
-              
           } else {
               const isStillClose = checkCollision(
                   {x: newX, y: newY, scale: movingObj.scale}, 
                   {x: other.x, y: other.y, scale: other.scale},
                   5
               );
-
               if (!isStillClose && activeCollisions.current.has(pairKey)) {
                   activeCollisions.current.delete(pairKey); 
               }
@@ -540,6 +577,33 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                     onMouseUp={handleMouseUp}
                     onMouseLeave={handleMouseUp}
                 >
+                    {/* OVERLAYS */}
+                    {status === 'LOADING' && (
+                        <div className="absolute inset-0 bg-white z-50 flex flex-col items-center justify-center">
+                            <Loader2 size={48} className="animate-spin text-gray-400" />
+                            <p className="mt-2 font-bold text-gray-400 animate-pulse">LOADING ASSETS...</p>
+                        </div>
+                    )}
+
+                    {/* CLICK TO START (CRITICAL FOR AUDIO AUTOPLAY) */}
+                    {status === 'READY' && (
+                        <div className="absolute inset-0 bg-white/90 z-50 flex flex-col items-center justify-center cursor-pointer" onClick={startGame}>
+                            <button 
+                                className="group relative"
+                            >
+                                <div className="w-24 h-24 bg-[#22c55e] rounded-full border-[4px] border-black flex items-center justify-center shadow-[6px_6px_0px_black] group-hover:scale-110 group-active:scale-95 group-active:shadow-none transition-all">
+                                    <Play size={48} className="text-white fill-white ml-2" />
+                                </div>
+                            </button>
+                            <p className="mt-6 font-bold text-3xl animate-bounce text-black">CLICK TO START!</p>
+                            {loadedSoundCount > 0 && (
+                                <div className="flex items-center gap-2 mt-2 text-green-600 font-bold text-sm bg-green-100 px-3 py-1 rounded-full border border-black">
+                                    <Volume2 size={16}/> {loadedSoundCount} SOUNDS LOADED
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     {/* SCENE CONTENT */}
                     <div className="w-full h-full relative" style={{ transform: 'scale(1)', transformOrigin: 'top left' }}>
                         {objects.map(obj => {
@@ -548,7 +612,6 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                             
                             if (!actor) return null;
                             const isDragging = draggingId === obj.id;
-                            
                             const currentScale = obj.scale || 1.0;
                             const displaySize = ACTOR_SIZE * currentScale;
 
@@ -581,8 +644,8 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                         })}
                     </div>
 
-                    {/* OVERLAYS */}
-                    {status !== 'PLAYING' && (
+                    {/* END GAME SCREENS */}
+                    {(status === 'WON' || status === 'LOST' || status === 'TRANSITION') && (
                         <div className="absolute inset-0 bg-black/70 backdrop-blur-sm flex flex-col items-center justify-center animate-in zoom-in duration-300 p-4 z-50">
                             {status === 'WON' && (
                                 <div className="text-yellow-400 text-center">

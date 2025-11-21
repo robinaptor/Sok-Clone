@@ -99,47 +99,55 @@ const App: React.FC = () => {
       name: `Thing ${gameData.actors.length + 1}`,
       imageData: canvas.toDataURL()
     };
-    setGameData({ ...gameData, actors: [...gameData.actors, newActor] });
+    
+    // FUNCTIONAL UPDATE: Fix race conditions
+    setGameData(prev => ({ ...prev, actors: [...prev.actors, newActor] }));
     setSelectedActorId(newActor.id);
     if (view !== ToolMode.DRAW) setView(ToolMode.DRAW);
   };
 
   const updateActor = (updated: Actor) => {
-    setGameData({
-      ...gameData,
-      actors: gameData.actors.map(a => a.id === updated.id ? updated : a)
-    });
+    // FUNCTIONAL UPDATE: Fix race conditions
+    setGameData(prev => ({
+      ...prev,
+      actors: prev.actors.map(a => a.id === updated.id ? updated : a)
+    }));
   };
 
   const deleteActor = (id: string) => {
     if (gameData.actors.length <= 1) return; // Keep at least one
-    setGameData({
-      ...gameData,
-      actors: gameData.actors.filter(a => a.id !== id),
-      scenes: gameData.scenes.map(scene => ({
+    
+    // FUNCTIONAL UPDATE: Fix race conditions
+    setGameData(prev => ({
+      ...prev,
+      actors: prev.actors.filter(a => a.id !== id),
+      scenes: prev.scenes.map(scene => ({
           ...scene,
           objects: scene.objects.filter(obj => obj.actorId !== id)
       })),
-      rules: gameData.rules.filter(r => r.subjectId !== id && r.objectId !== id)
-    });
+      rules: prev.rules.filter(r => r.subjectId !== id && r.objectId !== id)
+    }));
+    
     if (selectedActorId === id) setSelectedActorId(gameData.actors[0].id);
   };
 
   // --- SCENE LOGIC ---
   const addScene = () => {
       const newId = `scene_${gameData.scenes.length + 1}`;
-      setGameData({
-          ...gameData,
-          scenes: [...gameData.scenes, { id: newId, objects: [] }]
-      });
+      // FUNCTIONAL UPDATE: Fix race conditions
+      setGameData(prev => ({
+          ...prev,
+          scenes: [...prev.scenes, { id: newId, objects: [] }]
+      }));
       setCurrentSceneId(newId);
   };
 
   const updateCurrentSceneLevel = (objects: LevelObject[]) => {
-      setGameData({
-          ...gameData,
-          scenes: gameData.scenes.map(s => s.id === currentSceneId ? { ...s, objects } : s)
-      });
+      // FUNCTIONAL UPDATE: Fix race conditions
+      setGameData(prev => ({
+          ...prev,
+          scenes: prev.scenes.map(s => s.id === currentSceneId ? { ...s, objects } : s)
+      }));
   };
 
   const handleNextScene = () => {
@@ -151,9 +159,10 @@ const App: React.FC = () => {
       }
   };
 
-  const updateRules = (rules: Rule[]) => setGameData({ ...gameData, rules });
-  const updateSounds = (sounds: Sound[]) => setGameData({ ...gameData, sounds }); // NEW
-  const updateTitle = (title: string) => setGameData({ ...gameData, title });
+  // FUNCTIONAL UPDATES (CRITICAL FOR SOUND RECORDER FIX)
+  const updateRules = (rules: Rule[]) => setGameData(prev => ({ ...prev, rules }));
+  const updateSounds = (sounds: Sound[]) => setGameData(prev => ({ ...prev, sounds })); 
+  const updateTitle = (title: string) => setGameData(prev => ({ ...prev, title }));
 
   // --- AI ---
   const handleGenerate = async () => {
