@@ -34,6 +34,9 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
         currentLoop?: boolean;
     } | null>(null);
 
+    // State for Timer Config Modal
+    const [timerModal, setTimerModal] = useState<{ ruleId: string, interval: number } | null>(null);
+
     // State for Text Input Modal (SAY)
     const [textInputModal, setTextInputModal] = useState<{
         ruleId: string;
@@ -591,6 +594,42 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                 </div>
             )}
 
+            {/* --- MODAL: TIMER CONFIG --- */}
+            {timerModal && (
+                <div className="absolute inset-0 z-50 bg-black/50 flex items-center justify-center backdrop-blur-sm animate-in fade-in">
+                    <div className="bg-white p-6 border-4 border-black rounded-xl shadow-[8px_8px_0px_rgba(0,0,0,0.5)] flex flex-col gap-4 w-[300px] sketch-box">
+                        <h3 className="font-bold text-xl uppercase text-center">TIMER INTERVAL</h3>
+
+                        <div className="flex flex-col gap-2">
+                            <label className="font-bold text-xs text-gray-500">SECONDS:</label>
+                            <input
+                                type="number"
+                                value={timerModal.interval}
+                                onChange={e => setTimerModal({ ...timerModal, interval: parseFloat(e.target.value) })}
+                                className="w-full border-2 border-black rounded p-2 font-bold text-center text-xl"
+                                step="0.1"
+                                min="0.1"
+                            />
+                        </div>
+
+                        <div className="flex gap-2">
+                            <button onClick={() => setTimerModal(null)} className="flex-1 py-2 font-bold text-gray-500 hover:bg-gray-100 rounded">CANCEL</button>
+                            <button
+                                onClick={() => {
+                                    if (timerModal.interval > 0) {
+                                        onUpdateRules(gameData.rules.map(r => r.id === timerModal.ruleId ? { ...r, interval: timerModal.interval } : r));
+                                        setTimerModal(null);
+                                    }
+                                }}
+                                className="flex-1 bg-[#22c55e] text-white py-2 font-bold rounded hover:scale-105 transition-transform"
+                            >
+                                SAVE
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* --- MODAL: SELECTION (ACTOR / SCENE) --- */}
             {selectionModal && (
                 <div className="absolute inset-0 z-50 bg-black/50 flex items-center justify-center backdrop-blur-sm animate-in fade-in">
@@ -864,15 +903,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                     {/* TIMER TRIGGER CONFIG */}
                                     {rule.trigger === RuleTrigger.TIMER && (
                                         <button
-                                            onClick={() => {
-                                                const val = prompt("Enter timer interval in seconds:", (rule.interval || 2).toString());
-                                                if (val) {
-                                                    const num = parseFloat(val);
-                                                    if (!isNaN(num) && num > 0) {
-                                                        onUpdateRules(gameData.rules.map(r => r.id === rule.id ? { ...r, interval: num } : r));
-                                                    }
-                                                }
-                                            }}
+                                            onClick={() => setTimerModal({ ruleId: rule.id, interval: rule.interval || 2 })}
                                             className="px-3 py-2 bg-blue-100 border-2 border-blue-500 border-dashed rounded flex flex-col items-center justify-center hover:bg-blue-200 min-w-[60px]"
                                         >
                                             <span className="text-[10px] font-bold text-blue-800">EVERY</span>
@@ -887,7 +918,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                         </div>
                                     )}
 
-                                    {rule.trigger !== RuleTrigger.VAR_CHECK && (
+                                    {rule.trigger !== RuleTrigger.VAR_CHECK && rule.trigger !== RuleTrigger.TIMER && (
                                         <div className="font-['Space_Mono'] font-bold text-sm text-gray-400 flex flex-col items-center px-2">
                                             {rule.invert && <span className="text-red-500 font-bold text-lg animate-pulse">IS NOT</span>}
                                             <span>{getTriggerLabel(rule)}</span>

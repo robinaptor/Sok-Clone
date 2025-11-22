@@ -8,7 +8,7 @@ export const ACTOR_SIZE = 80; // Size of actors in pixels
 export const MOVE_STEP = 80;  // How far actors move per keypress
 
 // For the canvas drawing resolution
-export const CANVAS_SIZE = 128; 
+export const CANVAS_SIZE = 128;
 
 export const DEFAULT_ACTOR_ID = 'hero';
 
@@ -29,16 +29,16 @@ export const INITIAL_GAME_DATA: GameData = {
   actors: [DEFAULT_HERO],
   rules: [],
   scenes: [
-    { 
-      id: 'scene_1', 
+    {
+      id: 'scene_1',
       objects: [
         { id: 'start_p1', actorId: 'hero', x: 360, y: 260, isLocked: false }
-      ] 
+      ]
     }
   ],
   sounds: [],
   variables: [
-      { id: 'score', name: 'Score', initialValue: 0, scope: 'GLOBAL' }
+    { id: 'score', name: 'Score', initialValue: 0, scope: 'GLOBAL' }
   ]
 };
 
@@ -55,41 +55,43 @@ export const INTERACTION_LABELS: Record<InteractionType, string> = {
   [InteractionType.MODIFY_VAR]: 'Modifies Variable',
   [InteractionType.SAY]: 'Says',
   [InteractionType.NOTHING]: 'Ignores',
-  [InteractionType.THEN]: 'Then...'
+  [InteractionType.THEN]: 'Then...',
+  [InteractionType.PUSH]: 'Pushes',
+  [InteractionType.BLOCK]: 'Blocks'
 };
 
 // NEW: Magnet Definitions categorized
 export const TRIGGER_MAGNETS = [
-    { type: RuleTrigger.KEY_PRESS, label: 'KEY', color: '#fcd34d', icon: 'keyboard' }, // Yellow (NEW)
-    { type: RuleTrigger.COLLISION, label: 'TOUCH', color: '#fcd34d', icon: 'eye' }, // Yellow
-    { type: RuleTrigger.CLICK, label: 'CLICK', color: '#fcd34d', icon: 'hand' }, // Yellow
-    { type: RuleTrigger.START, label: 'START', color: '#86efac', icon: 'flag' }, // Green
-    { type: RuleTrigger.TIMER, label: 'TIMER', color: '#93c5fd', icon: 'hourglass' }, // Blue
-    { type: RuleTrigger.VAR_CHECK, label: 'VAR?', color: '#60a5fa', icon: 'hash' }, // Blue (NEW)
+  { type: RuleTrigger.KEY_PRESS, label: 'KEY', color: '#fcd34d', icon: 'keyboard' }, // Yellow (NEW)
+  { type: RuleTrigger.COLLISION, label: 'TOUCH', color: '#fcd34d', icon: 'eye' }, // Yellow
+  { type: RuleTrigger.CLICK, label: 'CLICK', color: '#fcd34d', icon: 'hand' }, // Yellow
+  { type: RuleTrigger.START, label: 'START', color: '#86efac', icon: 'flag' }, // Green
+  { type: RuleTrigger.TIMER, label: 'TIMER', color: '#93c5fd', icon: 'hourglass' }, // Blue
+  { type: RuleTrigger.VAR_CHECK, label: 'VAR?', color: '#60a5fa', icon: 'hash' }, // Blue (NEW)
 ];
 
 export const EFFECT_MAGNETS = [
-    { type: InteractionType.STEP, label: 'STEP', color: '#4ade80', icon: 'footprints' }, // Green (Replaces Move)
-    { type: InteractionType.SHAKE, label: 'SHAKE', color: '#f87171', icon: 'activity' }, // Red (Visual Juice)
-    
-    { type: InteractionType.DESTROY_OBJECT, label: 'EAT', color: '#ef4444', icon: 'utensils' }, // Red
-    { type: InteractionType.DESTROY_SUBJECT, label: 'DIE', color: '#ef4444', icon: 'skull' }, // Red
-    
-    // The 3 Special Effects
-    { type: InteractionType.SPAWN, label: 'SPAWN', color: '#d8b4fe', icon: 'sparkles' }, // Purple
-    { type: InteractionType.SWAP, label: 'SWAP', color: '#f0abfc', icon: 'refresh' }, // Pink
-    { type: InteractionType.PLAY_ANIM, label: 'ANIM', color: '#e879f9', icon: 'film' }, // Magenta
+  { type: InteractionType.STEP, label: 'STEP', color: '#4ade80', icon: 'footprints' }, // Green (Replaces Move)
+  { type: InteractionType.SHAKE, label: 'SHAKE', color: '#f87171', icon: 'activity' }, // Red (Visual Juice)
 
-    { type: InteractionType.SAY, label: 'SAY', color: '#fde047', icon: 'message-circle' }, // Yellow-ish (NEW)
+  { type: InteractionType.DESTROY_OBJECT, label: 'EAT', color: '#ef4444', icon: 'utensils' }, // Red
+  { type: InteractionType.DESTROY_SUBJECT, label: 'DIE', color: '#ef4444', icon: 'skull' }, // Red
 
-    { type: InteractionType.CHANGE_SCENE, label: 'DOOR', color: '#c084fc', icon: 'door-open' }, // Purple
-    { type: InteractionType.WIN, label: 'WIN', color: '#facc15', icon: 'trophy' }, // Gold
-    
-    { type: InteractionType.MODIFY_VAR, label: 'SET VAR', color: '#3b82f6', icon: 'hash' }, // Blue Darker (NEW)
+  // The 3 Special Effects
+  { type: InteractionType.SPAWN, label: 'SPAWN', color: '#d8b4fe', icon: 'sparkles' }, // Purple
+  { type: InteractionType.SWAP, label: 'SWAP', color: '#f0abfc', icon: 'refresh' }, // Pink
+  { type: InteractionType.PLAY_ANIM, label: 'ANIM', color: '#e879f9', icon: 'film' }, // Magenta
 
-    { type: InteractionType.THEN, label: 'THEN', color: '#9ca3af', icon: 'timer' }, // Grey/Timer
+  { type: InteractionType.SAY, label: 'SAY', color: '#fde047', icon: 'message-circle' }, // Yellow-ish (NEW)
+
+  { type: InteractionType.CHANGE_SCENE, label: 'DOOR', color: '#c084fc', icon: 'door-open' }, // Purple
+  { type: InteractionType.WIN, label: 'WIN', color: '#facc15', icon: 'trophy' }, // Gold
+
+  { type: InteractionType.MODIFY_VAR, label: 'SET VAR', color: '#3b82f6', icon: 'hash' }, // Blue Darker (NEW)
+
+  { type: InteractionType.THEN, label: 'THEN', color: '#9ca3af', icon: 'timer' }, // Grey/Timer
 ];
 
 export const NOT_MAGNET = {
-    label: 'NOT', color: '#ef4444', icon: 'ban'
+  label: 'NOT', color: '#ef4444', icon: 'ban'
 };
