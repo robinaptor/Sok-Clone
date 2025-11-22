@@ -1,5 +1,4 @@
 
-
 import { Actor, GameData, InteractionType, RuleTrigger } from './types';
 
 // Scene Dimensions in Pixels
@@ -37,7 +36,10 @@ export const INITIAL_GAME_DATA: GameData = {
       ] 
     }
   ],
-  sounds: [] // NEW
+  sounds: [],
+  variables: [
+      { id: 'score', name: 'Score', initialValue: 0, scope: 'GLOBAL' }
+  ]
 };
 
 export const INTERACTION_LABELS: Record<InteractionType, string> = {
@@ -50,6 +52,7 @@ export const INTERACTION_LABELS: Record<InteractionType, string> = {
   [InteractionType.SPAWN]: 'Appears',
   [InteractionType.SWAP]: 'Transforms',
   [InteractionType.PLAY_ANIM]: 'Plays Anim',
+  [InteractionType.MODIFY_VAR]: 'Modifies Variable',
   [InteractionType.NOTHING]: 'Ignores',
   [InteractionType.THEN]: 'Then...'
 };
@@ -60,6 +63,7 @@ export const TRIGGER_MAGNETS = [
     { type: RuleTrigger.CLICK, label: 'CLICK', color: '#fcd34d', icon: 'hand' }, // Yellow
     { type: RuleTrigger.START, label: 'START', color: '#86efac', icon: 'flag' }, // Green
     { type: RuleTrigger.TIMER, label: 'TIMER', color: '#93c5fd', icon: 'hourglass' }, // Blue
+    { type: RuleTrigger.VAR_CHECK, label: 'VAR?', color: '#60a5fa', icon: 'hash' }, // Blue (NEW)
 ];
 
 export const EFFECT_MAGNETS = [
@@ -75,6 +79,9 @@ export const EFFECT_MAGNETS = [
 
     { type: InteractionType.CHANGE_SCENE, label: 'DOOR', color: '#c084fc', icon: 'door-open' }, // Purple
     { type: InteractionType.WIN, label: 'WIN', color: '#facc15', icon: 'trophy' }, // Gold
+    
+    { type: InteractionType.MODIFY_VAR, label: 'SET VAR', color: '#3b82f6', icon: 'hash' }, // Blue Darker (NEW)
+
     { type: InteractionType.THEN, label: 'THEN', color: '#9ca3af', icon: 'timer' }, // Grey/Timer
 ];
 

@@ -1,5 +1,4 @@
 
-
 export enum ToolMode {
   PROJECTS = 'PROJECTS', // New Home Screen
   DRAW = 'DRAW',
@@ -21,11 +20,19 @@ export interface Sound {
   data: string; // Base64 Audio Data
 }
 
+export interface GlobalVariable {
+  id: string;
+  name: string;
+  initialValue: number;
+  scope?: 'GLOBAL' | string; // 'GLOBAL' or specific scene ID
+}
+
 export enum RuleTrigger {
   COLLISION = 'COLLISION',
   CLICK = 'CLICK',
   START = 'START', // Triggered when scene loads
-  TIMER = 'TIMER'  // Triggered periodically
+  TIMER = 'TIMER',  // Triggered periodically
+  VAR_CHECK = 'VAR_CHECK' // NEW: Triggered when variable meets condition
 }
 
 export enum InteractionType {
@@ -38,6 +45,7 @@ export enum InteractionType {
   SPAWN = 'SPAWN', // New: Make object appear
   SWAP = 'SWAP',   // New: Transform object
   PLAY_ANIM = 'PLAY_ANIM', // New: visual effect
+  MODIFY_VAR = 'MODIFY_VAR', // NEW: Change variable value
   NOTHING = 'NOTHING',
   THEN = 'THEN' // Sequence / Delay modifier
 }
@@ -51,6 +59,10 @@ export interface RuleEffect {
   spawnY?: number;
   target?: 'SUBJECT' | 'OBJECT'; // Determines if the effect applies to the subject or object
   isLoop?: boolean; // For animations
+  // For VARIABLES
+  variableId?: string;
+  operation?: 'ADD' | 'SUB' | 'SET';
+  value?: number;
 }
 
 export interface Rule {
@@ -59,6 +71,11 @@ export interface Rule {
   trigger: RuleTrigger;
   subjectId: string; // The actor moving or being clicked (IGNORED FOR START)
   objectId?: string;  // The actor being hit (only for collision)
+  // For VARIABLE Trigger
+  variableId?: string;
+  condition?: 'EQUALS' | 'GREATER' | 'LESS';
+  threshold?: number;
+  
   effects: RuleEffect[]; // MULTIPLE effects
   invert?: boolean; // The "NOT" logic
   soundId?: string; // NEW: Audio to play when triggered
@@ -96,7 +113,8 @@ export interface GameData {
   actors: Actor[];
   rules: Rule[];
   scenes: Scene[];
-  sounds: Sound[]; // NEW: Library of sounds
+  sounds: Sound[]; // Library of sounds
+  variables: GlobalVariable[]; // NEW: Global variables
   backgroundColor: string;
 }
 

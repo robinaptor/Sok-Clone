@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect } from 'react';
-import { Actor, GameData, Rule, ToolMode, LevelObject, Sound } from './types';
+import { Actor, GameData, Rule, ToolMode, LevelObject, Sound, GlobalVariable } from './types';
 import { INITIAL_GAME_DATA, CANVAS_SIZE, DEFAULT_HERO, SCENE_WIDTH, SCENE_HEIGHT, ACTOR_SIZE } from './constants';
 import { SpriteEditor } from './components/SpriteEditor';
 import { SceneEditor } from './components/SceneEditor';
@@ -68,7 +69,8 @@ const App: React.FC = () => {
       actors: [{ ...DEFAULT_HERO, id: Math.random().toString(36).substr(2, 9) }],
       scenes: [{ id: 'scene_1', objects: [] }],
       rules: [],
-      sounds: []
+      sounds: [],
+      variables: INITIAL_GAME_DATA.variables || []
     };
     // Reset selection
     setGameData(newProject);
@@ -220,6 +222,7 @@ const App: React.FC = () => {
 
   const updateRules = (rules: Rule[]) => setGameData(prev => ({ ...prev, rules }));
   const updateSounds = (sounds: Sound[]) => setGameData(prev => ({ ...prev, sounds })); 
+  const updateVariables = (variables: GlobalVariable[]) => setGameData(prev => ({ ...prev, variables }));
   const updateTitle = (title: string) => setGameData(prev => ({ ...prev, title }));
 
   // --- AI ---
@@ -234,7 +237,8 @@ const App: React.FC = () => {
         actors: generated.actors || [DEFAULT_HERO],
         rules: generated.rules || [],
         scenes: generated.scenes || [{ id: 'scene_1', objects: [] }],
-        sounds: []
+        sounds: [],
+        variables: []
       };
       setGameData(newProject);
       setSelectedActorId(newProject.actors?.[0]?.id || '');
@@ -458,6 +462,7 @@ const App: React.FC = () => {
                         gameData={gameData} 
                         onUpdateRules={updateRules} 
                         onUpdateSounds={updateSounds} 
+                        onUpdateVariables={updateVariables}
                         currentSceneId={currentSceneId} 
                     />
                 </div>
