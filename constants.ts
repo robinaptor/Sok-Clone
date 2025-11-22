@@ -53,6 +53,7 @@ export const INTERACTION_LABELS: Record<InteractionType, string> = {
   [InteractionType.SWAP]: 'Transforms',
   [InteractionType.PLAY_ANIM]: 'Plays Anim',
   [InteractionType.MODIFY_VAR]: 'Modifies Variable',
+  [InteractionType.SAY]: 'Says',
   [InteractionType.NOTHING]: 'Ignores',
   [InteractionType.THEN]: 'Then...'
 };
@@ -76,6 +77,8 @@ export const EFFECT_MAGNETS = [
     { type: InteractionType.SPAWN, label: 'SPAWN', color: '#d8b4fe', icon: 'sparkles' }, // Purple
     { type: InteractionType.SWAP, label: 'SWAP', color: '#f0abfc', icon: 'refresh' }, // Pink
     { type: InteractionType.PLAY_ANIM, label: 'ANIM', color: '#e879f9', icon: 'film' }, // Magenta
+
+    { type: InteractionType.SAY, label: 'SAY', color: '#fde047', icon: 'message-circle' }, // Yellow-ish (NEW)
 
     { type: InteractionType.CHANGE_SCENE, label: 'DOOR', color: '#c084fc', icon: 'door-open' }, // Purple
     { type: InteractionType.WIN, label: 'WIN', color: '#facc15', icon: 'trophy' }, // Gold

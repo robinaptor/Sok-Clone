@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { GameData, Rule, InteractionType, RuleTrigger, Sound, GlobalVariable, RuleEffect } from '../types';
 import { TRIGGER_MAGNETS, EFFECT_MAGNETS, SCENE_WIDTH, SCENE_HEIGHT } from '../constants';
-import { Trash2, Square, ArrowRight, Trophy, HelpCircle, Hand, Eye, DoorOpen, Utensils, Skull, Puzzle, Ban, RotateCw, Globe, MapPin, X, Timer, ChevronsRight, Flag, Hourglass, Sparkles, Crosshair, Volume2, VolumeX, Edit3, Plus, RefreshCw, Clapperboard, ArrowDown, Repeat, Clock, Hash, PlusCircle, Calculator, Settings } from 'lucide-react';
+import { Trash2, Square, ArrowRight, Trophy, HelpCircle, Hand, Eye, DoorOpen, Utensils, Skull, Puzzle, Ban, RotateCw, Globe, MapPin, X, Timer, ChevronsRight, Flag, Hourglass, Sparkles, Crosshair, Volume2, VolumeX, Edit3, Plus, RefreshCw, Clapperboard, ArrowDown, Repeat, Clock, Hash, PlusCircle, Calculator, Settings, MessageCircle, MessageSquare } from 'lucide-react';
 import { SoundRecorder } from './SoundRecorder';
 
 interface RuleEditorProps {
@@ -32,6 +32,13 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
     objectActorId?: string; // To show preview
     allowLoop?: boolean; // For ANIM
     currentLoop?: boolean;
+  } | null>(null);
+
+  // State for Text Input Modal (SAY)
+  const [textInputModal, setTextInputModal] = useState<{
+      ruleId: string;
+      effectIndex: number;
+      currentText: string;
   } | null>(null);
   
   // State for Sound Modal
@@ -88,6 +95,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
           case 'film': return <Clapperboard size={20} strokeWidth={3} />;
           case 'hash': return <Hash size={20} strokeWidth={3} />;
           case 'plus-circle': return <PlusCircle size={20} strokeWidth={3} />;
+          case 'message-circle': return <MessageCircle size={20} strokeWidth={3} />;
           default: return <HelpCircle size={20} />;
       }
   };
@@ -216,6 +224,16 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                  }
              }
 
+             // Handle SAY magnet
+             if (interaction === InteractionType.SAY) {
+                 newEffect.text = "Hello!";
+                 // We will open the modal via a timeout to ensure render happens first
+                 setTimeout(() => {
+                     // Find the rule again to get the correct effect index
+                     setTextInputModal({ ruleId, effectIndex: gameData.rules.find(r => r.id === ruleId)!.effects.length, currentText: "Hello!" });
+                 }, 50);
+             }
+
              onUpdateRules(gameData.rules.map(r => {
                  if (r.id === ruleId) {
                      return { ...r, effects: [...r.effects, newEffect] };
@@ -300,7 +318,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
           if (r.id === ruleId) {
               const newEffects = [...r.effects];
               if (type === 'ACTOR') {
-                  if (newEffects[effectIndex].type === InteractionType.DESTROY_OBJECT) {
+                  if (newEffects[effectIndex].type === InteractionType.DESTROY_OBJECT || newEffects[effectIndex].type === InteractionType.SAY) {
                        newEffects[effectIndex] = {
                            ...newEffects[effectIndex],
                            target: currentTarget || 'OBJECT', 
@@ -370,6 +388,20 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
       setVariableModal(null);
   };
 
+  const handleTextSave = () => {
+      if (!textInputModal) return;
+      const { ruleId, effectIndex, currentText } = textInputModal;
+      onUpdateRules(gameData.rules.map(r => {
+          if (r.id === ruleId) {
+              const newEffects = [...r.effects];
+              newEffects[effectIndex] = { ...newEffects[effectIndex], text: currentText };
+              return { ...r, effects: newEffects };
+          }
+          return r;
+      }));
+      setTextInputModal(null);
+  };
+
   const getTriggerLabel = (rule: Rule) => {
       if (rule.trigger === RuleTrigger.START) return "GAME STARTS";
       if (rule.trigger === RuleTrigger.TIMER) return "EVERY 2 SEC";
@@ -392,6 +424,38 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
               onSave={handleSoundSave}
               onClose={() => setRecordingForRuleId(null)}
           />
+      )}
+
+      {/* --- MODAL: TEXT INPUT (SAY) --- */}
+      {textInputModal && (
+          <div className="absolute inset-0 z-50 bg-black/50 flex items-center justify-center backdrop-blur-sm animate-in fade-in">
+              <div className="bg-white p-6 border-4 border-black rounded-xl shadow-[8px_8px_0px_rgba(0,0,0,0.5)] flex flex-col gap-4 w-[320px] sketch-box">
+                  <div className="flex justify-between items-center border-b-2 border-black pb-2">
+                      <h3 className="font-bold text-xl uppercase flex items-center gap-2">
+                          <MessageCircle size={24}/> DIALOGUE
+                      </h3>
+                      <button onClick={() => setTextInputModal(null)}><X size={24}/></button>
+                  </div>
+                  
+                  <div className="flex flex-col gap-2">
+                      <label className="font-bold text-xs uppercase text-gray-500">What do they say?</label>
+                      <textarea 
+                        autoFocus
+                        rows={3}
+                        value={textInputModal.currentText} 
+                        onChange={e => setTextInputModal({...textInputModal, currentText: e.target.value})} 
+                        className="w-full border-2 border-black rounded p-2 font-bold text-lg bg-yellow-50 outline-none focus:bg-white transition-colors resize-none" 
+                      />
+                  </div>
+
+                  <div className="flex gap-3 mt-2">
+                      <button onClick={() => setTextInputModal(null)} className="flex-1 py-2 border-2 border-black rounded font-bold hover:bg-gray-100">CANCEL</button>
+                      <button onClick={handleTextSave} className="flex-1 py-2 bg-[#22c55e] border-2 border-black rounded font-bold text-white hover:bg-[#16a34a] shadow-[2px_2px_0px_black] active:translate-y-1 active:shadow-none transition-all">
+                          SAVE
+                      </button>
+                  </div>
+              </div>
+          </div>
       )}
 
       {/* --- MODAL: NEW/EDIT VARIABLE --- */}
@@ -777,6 +841,37 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                                 <div className="text-xs bg-cyan-200 px-2 rounded-full">{effect.operation} {effect.value}</div>
                                              </button>
                                              <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center hover:scale-110 z-10"><X size={14} /></button>
+                                        </div>
+                                    );
+                                }
+
+                                // SAY (Dialogue)
+                                if (effect.type === InteractionType.SAY) {
+                                    const targetIcon = effect.target === 'OBJECT' ? rule.objectId : rule.subjectId;
+                                    return (
+                                        <div key={idx} className="relative group shrink-0">
+                                            <div className="flex flex-col items-center bg-yellow-50 border-2 border-yellow-500 rounded-lg p-2 shadow-sm h-[90px] min-w-[80px] justify-center gap-1">
+                                                <span className="text-[10px] font-bold text-yellow-700 uppercase">SAY</span>
+                                                <div className="flex gap-1 items-center">
+                                                    {/* Target Selector */}
+                                                    <div className="flex flex-col items-center scale-90">
+                                                        <button onClick={() => setSelectionModal({ ruleId: rule.id, effectIndex: idx, type: 'ACTOR', label: "WHO SPEAKS?", allowTargetSelection: true, currentTarget: effect.target || 'SUBJECT', subjectActorId: rule.subjectId, objectActorId: rule.objectId })} className="w-8 h-8 border border-black rounded bg-gray-100 overflow-hidden flex items-center justify-center hover:scale-110 transition-transform" title="Who speaks?">
+                                                            {(effect.target === 'OBJECT' && !rule.objectId) ? <div className="text-[10px] font-bold">ANY</div> : (targetIcon ? <img src={getActorImage(targetIcon)} className="w-full h-full object-contain"/> : <span className="text-xs">?</span>)}
+                                                        </button>
+                                                    </div>
+                                                    
+                                                    {/* Text Editor Trigger */}
+                                                    <button 
+                                                        onClick={() => setTextInputModal({ ruleId: rule.id, effectIndex: idx, currentText: effect.text || '' })}
+                                                        className="w-10 h-10 border-2 border-black rounded bg-yellow-200 hover:bg-yellow-300 flex items-center justify-center transition-transform hover:scale-105"
+                                                        title="Edit Text"
+                                                    >
+                                                        <MessageSquare size={20} className="text-yellow-800"/>
+                                                    </button>
+                                                </div>
+                                                <div className="text-[10px] bg-yellow-200 px-2 rounded-full max-w-[70px] truncate mt-1">{effect.text || '...'}</div>
+                                            </div>
+                                            <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center hover:scale-110 z-10"><X size={14} /></button>
                                         </div>
                                     );
                                 }

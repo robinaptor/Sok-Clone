@@ -46,6 +46,7 @@ export enum InteractionType {
   SWAP = 'SWAP',   // New: Transform object
   PLAY_ANIM = 'PLAY_ANIM', // New: visual effect
   MODIFY_VAR = 'MODIFY_VAR', // NEW: Change variable value
+  SAY = 'SAY', // NEW: Dialogue bubble
   NOTHING = 'NOTHING',
   THEN = 'THEN' // Sequence / Delay modifier
 }
@@ -63,6 +64,8 @@ export interface RuleEffect {
   variableId?: string;
   operation?: 'ADD' | 'SUB' | 'SET';
   value?: number;
+  // For SAY
+  text?: string;
 }
 
 export interface Rule {

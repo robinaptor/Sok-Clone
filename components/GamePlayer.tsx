@@ -28,6 +28,31 @@ const base64ToArrayBuffer = (base64: string) => {
     }
 };
 
+// --- SPEECH BUBBLE COMPONENT ---
+const SpeechBubble = ({ text }: { text: string }) => {
+    const [displayedText, setDisplayedText] = useState("");
+    
+    useEffect(() => {
+        let i = 0;
+        setDisplayedText("");
+        const interval = setInterval(() => {
+            setDisplayedText(text.slice(0, i + 1));
+            i++;
+            if (i >= text.length) clearInterval(interval);
+        }, 50); // Speed of typing
+        return () => clearInterval(interval);
+    }, [text]);
+
+    return (
+        <div className="absolute bottom-[110%] left-1/2 -translate-x-1/2 bg-white border-[3px] border-black rounded-xl px-3 py-2 shadow-md z-50 min-w-[100px] max-w-[200px] text-center pointer-events-none animate-in zoom-in duration-200 origin-bottom">
+            <p className="text-sm font-bold leading-tight">{displayedText}</p>
+            {/* Triangle tail */}
+            <div className="absolute bottom-[-8px] left-1/2 -translate-x-1/2 w-0 h-0 border-l-[8px] border-l-transparent border-r-[8px] border-r-transparent border-t-[8px] border-t-black"></div>
+            <div className="absolute bottom-[-4px] left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[6px] border-t-white"></div>
+        </div>
+    );
+};
+
 // --- ANIMATED SPRITE COMPONENT ---
 const AnimatedSprite = ({ 
     baseActor, 
@@ -130,6 +155,9 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
   // VARIABLES STATE
   const [runtimeVariables, setRuntimeVariables] = useState<Record<string, number>>({});
 
+  // DIALOGUE STATE (Active Speech Bubbles)
+  const [activeBubbles, setActiveBubbles] = useState<Record<string, { text: string, expiresAt: number }>>({});
+
   const [status, setStatus] = useState<'LOADING' | 'READY' | 'PLAYING' | 'WON' | 'LOST' | 'TRANSITION'>('LOADING');
   const [loadedSoundCount, setLoadedSoundCount] = useState(0);
   
@@ -211,12 +239,32 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
         });
     }
     setRuntimeVariables(initialVars);
+    setActiveBubbles({}); // Clear bubbles
 
     setStatus(prev => (prev === 'LOADING' || prev === 'READY') ? prev : 'PLAYING');
     setDraggingId(null);
     executingRuleIds.current.clear();
     activeCollisions.current.clear();
   };
+
+  // Bubble Cleanup Timer
+  useEffect(() => {
+      const interval = setInterval(() => {
+          const now = Date.now();
+          setActiveBubbles(prev => {
+              let changed = false;
+              const next = { ...prev };
+              for (const key in next) {
+                  if (next[key].expiresAt < now) {
+                      delete next[key];
+                      changed = true;
+                  }
+              }
+              return changed ? next : prev;
+          });
+      }, 500);
+      return () => clearInterval(interval);
+  }, []);
 
   // Remove ephemeral objects
   useEffect(() => {
@@ -279,11 +327,6 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
              executingRuleIds.current.add(rule.id);
              if (rule.soundId) playSound(rule.soundId);
              await executeRuleEffects(rule.id, rule.effects, 'GLOBAL', null);
-             // We don't remove ID for VAR rules immediately to prevent spamming every frame while condition is true
-             // But for now, let's just leave it so it triggers once per met condition session? 
-             // Actually, better to clear it after a delay or if condition becomes false.
-             // For simplicity in this game loop: One shot trigger per "state change" is tricky.
-             // Let's just clear it after 1 sec so it can trigger again if value changes back and forth
              setTimeout(() => executingRuleIds.current.delete(rule.id), 1000);
           }
       }
@@ -355,6 +398,18 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
           }
 
           for (const targetId of targets) {
+              // SAY EFFECT
+              if (effect.type === InteractionType.SAY && effect.text) {
+                  const duration = Math.max(2000, effect.text.length * 100); // Minimum 2s, or longer for more text
+                  setActiveBubbles(prev => ({
+                      ...prev,
+                      [targetId]: { text: effect.text!, expiresAt: Date.now() + duration }
+                  }));
+                  // Don't block sequence too long, but maybe a little?
+                  previousActionDuration = 500; 
+                  continue;
+              }
+
               switch (effect.type) {
                   case InteractionType.WIN:
                       setStatus('WON');
@@ -635,6 +690,8 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                             const isDragging = draggingId === obj.id;
                             const currentScale = obj.scale || 1.0;
                             const displaySize = ACTOR_SIZE * currentScale;
+                            const activeBubble = activeBubbles[obj.id];
+
                             return (
                                 <div
                                     key={obj.id}
@@ -646,6 +703,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                                         transform: isDragging ? 'scale(1.05)' : 'scale(1)', opacity: obj.isEphemeral ? 0.9 : 1
                                     }}
                                 >
+                                    {activeBubble && <SpeechBubble text={activeBubble.text} />}
                                     <AnimatedSprite baseActor={actor} playingActor={playingActor} isLooping={obj.activeAnimation?.isLoop} isEphemeral={obj.isEphemeral} onFinish={() => handleAnimationFinish(obj.id)} triggerTime={obj.activeAnimation?.startTime} />
                                 </div>
                             );
