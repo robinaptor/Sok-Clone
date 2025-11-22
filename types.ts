@@ -53,7 +53,8 @@ export enum InteractionType {
   SHOOT = 'SHOOT', // NEW: Projectile
   PARTICLES = 'PARTICLES', // NEW: Visual effect
   NOTHING = 'NOTHING',
-  THEN = 'THEN' // Sequence / Delay modifier
+  THEN = 'THEN', // Sequence / Delay modifier
+  WAIT = 'WAIT' // NEW: Pause execution
 }
 
 export interface RuleEffect {
@@ -63,6 +64,17 @@ export interface RuleEffect {
   spawnActorId?: string; // Represents the Target Actor for the effect
   spawnX?: number;
   spawnY?: number;
+  // PARTICLES CONFIG
+  particleType?: 'CONFETTI' | 'EXPLOSION' | 'SMOKE' | 'RAIN';
+  particleCount?: number;
+  particleSize?: number;
+  particleArea?: number; // Radius
+  particleActorId?: string; // NEW: Custom sprite for particles
+
+  // SHOOT CONFIG
+  shootOffsetX?: number;
+  shootOffsetY?: number;
+  projectileSize?: number; // NEW: Custom size for projectile
   target?: 'SUBJECT' | 'OBJECT'; // Determines if the effect applies to the subject or object
   isLoop?: boolean; // For animations
   // For VARIABLES
@@ -112,6 +124,8 @@ export interface LevelObject {
   creationTime?: number;
   activeAnimation?: ActiveAnimation;
   scale?: number; // Added for visual scaling
+  vx?: number; // Velocity X
+  vy?: number; // Velocity Y
 }
 
 export interface Scene {

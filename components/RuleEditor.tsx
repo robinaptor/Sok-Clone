@@ -1,8 +1,7 @@
-
 import React, { useState } from 'react';
 import { GameData, Rule, InteractionType, RuleTrigger, Sound, GlobalVariable, RuleEffect } from '../types';
 import { TRIGGER_MAGNETS, EFFECT_MAGNETS, SCENE_WIDTH, SCENE_HEIGHT } from '../constants';
-import { Trash2, Square, ArrowRight, Trophy, HelpCircle, Hand, Eye, DoorOpen, Utensils, Skull, Puzzle, Ban, RotateCw, Globe, MapPin, X, Timer, ChevronsRight, Flag, Hourglass, Sparkles, Crosshair, Volume2, VolumeX, Edit3, Plus, RefreshCw, Clapperboard, ArrowDown, Repeat, Clock, Hash, PlusCircle, Calculator, Settings, MessageCircle, MessageSquare, Keyboard, Footprints, Activity } from 'lucide-react';
+import { Trash2, Square, ArrowRight, Trophy, HelpCircle, Hand, Eye, DoorOpen, Utensils, Skull, Puzzle, Ban, RotateCw, Globe, MapPin, X, Timer, ChevronsRight, Flag, Hourglass, Sparkles, Crosshair, Volume2, VolumeX, Edit3, Plus, RefreshCw, Clapperboard, ArrowDown, Repeat, Clock, Hash, PlusCircle, Calculator, Settings, MessageCircle, MessageSquare, Keyboard, Footprints, Activity, Dices } from 'lucide-react';
 import { SoundRecorder } from './SoundRecorder';
 
 interface RuleEditorProps {
@@ -67,13 +66,19 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
     const [varConfigOp, setVarConfigOp] = useState<'ADD' | 'SUB' | 'SET' | 'EQUALS' | 'GREATER' | 'LESS'>('ADD');
     const [varConfigVariableId, setVarConfigVariableId] = useState<string>('');
 
+    // NEW: Particle Config Modal
+    const [particleModal, setParticleModal] = useState<{ ruleId: string, effectIndex: number, type: 'CONFETTI' | 'EXPLOSION' | 'SMOKE' | 'RAIN', count: number, size: number, area: number, particleActorId?: string } | null>(null);
+
+    // NEW: Shoot Config Modal
+    const [shootConfigModal, setShootConfigModal] = useState<{ ruleId: string, effectIndex: number, shooterId: string, offsetX: number, offsetY: number, projectileSize: number } | null>(null);
+
+    // NEW: Chance Config Modal
+    const [chanceModal, setChanceModal] = useState<{ ruleId: string, chance: number } | null>(null);
+
     const activeScopeId = viewScope === 'GLOBAL' ? 'GLOBAL' : currentSceneId;
     const filteredRules = gameData.rules.filter(r => r.scope === activeScopeId);
     const currentScene = gameData.scenes.find(s => s.id === currentSceneId) || gameData.scenes[0];
 
-    // Filter variables based on current scope view
-    // GLOBAL view: Show GLOBAL vars
-    // LOCAL view: Show LOCAL vars for this scene
     // Filter variables based on current scope view
     // GLOBAL view: Show GLOBAL vars
     // LOCAL view: Show LOCAL vars for this scene
@@ -211,7 +216,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
         }
     };
 
-    const handleSlotDrop = (e: React.DragEvent, ruleId: string, slot: 'subject' | 'object' | 'effects' | 'trigger_modifier', effectIndex?: number) => {
+    const handleSlotDrop = (e: React.DragEvent, ruleId: string, slot: 'subject' | 'object' | 'effects' | 'trigger_modifier' | 'trigger', effectIndex?: number) => {
         e.preventDefault();
         e.stopPropagation();
         const type = e.dataTransfer.getData("type");
@@ -291,7 +296,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
         else if (type === "NOT_STICKER" && slot === 'trigger_modifier') {
             onUpdateRules(gameData.rules.map(r => r.id === ruleId ? { ...r, invert: !r.invert } : r));
         }
-        else if (type === "DICE_STICKER" && slot === 'trigger_modifier') {
+        else if (type === "DICE_STICKER" && (slot === 'trigger_modifier' || slot === 'trigger')) {
             onUpdateRules(gameData.rules.map(r => r.id === ruleId ? { ...r, chance: r.chance === 0.5 ? undefined : 0.5 } : r));
         }
         // DRAGGING A VARIABLE ONTO THE TRIGGER SLOT = CONVERT TO VAR CHECK
@@ -362,6 +367,14 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
 
     const handleSelectionSave = (selectedId: string) => {
         if (!selectionModal) return;
+
+        // SPECIAL CASE: If we are selecting a sprite for the Particle Modal
+        if (particleModal) {
+            setParticleModal({ ...particleModal, particleActorId: selectedId });
+            setSelectionModal(null);
+            return;
+        }
+
         const { ruleId, effectIndex, type, currentTarget, currentLoop } = selectionModal;
 
         onUpdateRules(gameData.rules.map(r => {
@@ -679,7 +692,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
 
             {/* --- MODAL: SELECTION (ACTOR / SCENE) --- */}
             {selectionModal && (
-                <div className="absolute inset-0 z-50 bg-black/50 flex items-center justify-center backdrop-blur-sm animate-in fade-in">
+                <div className="absolute inset-0 z-[60] bg-black/50 flex items-center justify-center backdrop-blur-sm animate-in fade-in">
                     <div className="bg-white p-6 border-4 border-black rounded-xl shadow-[8px_8px_0px_rgba(0,0,0,0.5)] flex flex-col gap-4 w-[90%] max-w-md max-h-[80vh] overflow-hidden sketch-box">
                         <div className="flex justify-between items-center border-b-2 border-black pb-2">
                             <h3 className="font-bold text-xl flex items-center gap-2 uppercase">{selectionModal.label}</h3>
@@ -767,9 +780,222 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                 </div>
             )}
 
-            {/* --- LEFT: TRIGGERS & VARIABLES --- */}
-            <div className="w-44 bg-yellow-100 border-[3px] border-black/10 p-4 flex flex-col gap-6 items-center shadow-inner rounded-l-lg overflow-y-auto shrink-0">
+            {/* --- MODAL: PARTICLE CONFIG --- */}
+            {particleModal && (
+                <div className="absolute inset-0 z-50 bg-black/50 flex items-center justify-center backdrop-blur-sm animate-in fade-in">
+                    <div className="bg-white p-6 border-4 border-black rounded-xl shadow-[8px_8px_0px_rgba(0,0,0,0.5)] flex flex-col gap-4 w-[320px] sketch-box">
+                        <div className="flex justify-between items-center border-b-2 border-black pb-2">
+                            <h3 className="font-bold text-xl uppercase flex items-center gap-2"><Sparkles size={24} /> PARTICLES</h3>
+                            <button onClick={() => setParticleModal(null)}><X size={24} /></button>
+                        </div>
 
+                        <div className="flex flex-col gap-2">
+                            <label className="font-bold text-xs text-gray-500">STYLE</label>
+                            <div className="grid grid-cols-2 gap-2">
+                                {['CONFETTI', 'EXPLOSION', 'SMOKE', 'RAIN'].map(t => (
+                                    <button
+                                        key={t}
+                                        onClick={() => setParticleModal({ ...particleModal, type: t as any })}
+                                        className={`py-2 border-2 rounded font-bold text-xs ${particleModal.type === t ? 'bg-purple-100 border-purple-500 text-purple-700' : 'bg-white border-gray-300'}`}
+                                    >
+                                        {t}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="flex flex-col gap-2">
+                            <label className="font-bold text-xs text-gray-500">CUSTOM SPRITE (OPTIONAL)</label>
+                            <button
+                                onClick={() => setSelectionModal({
+                                    ruleId: particleModal.ruleId,
+                                    effectIndex: particleModal.effectIndex,
+                                    type: 'ACTOR',
+                                    label: "CHOOSE PARTICLE SPRITE",
+                                    allowTargetSelection: false
+                                })}
+                                className="w-full h-12 border-2 border-black rounded bg-gray-100 hover:bg-gray-200 flex items-center justify-center gap-2"
+                            >
+                                {particleModal.particleActorId ? (
+                                    <>
+                                        <img src={getActorImage(particleModal.particleActorId)} className="w-8 h-8 object-contain" />
+                                        <span className="text-xs font-bold">CHANGE SPRITE</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <PlusCircle size={20} />
+                                        <span className="text-xs font-bold">SELECT SPRITE</span>
+                                    </>
+                                )}
+                            </button>
+                            {particleModal.particleActorId && (
+                                <button onClick={() => setParticleModal({ ...particleModal, particleActorId: undefined })} className="text-xs text-red-500 font-bold underline self-end">REMOVE SPRITE</button>
+                            )}
+                        </div>
+
+                        <div className="flex flex-col gap-2">
+                            <label className="font-bold text-xs text-gray-500">COUNT: {particleModal.count}</label>
+                            <input type="range" min="5" max="100" value={particleModal.count} onChange={e => setParticleModal({ ...particleModal, count: parseInt(e.target.value) })} className="accent-purple-500" />
+                        </div>
+
+                        <div className="flex flex-col gap-2">
+                            <label className="font-bold text-xs text-gray-500">SIZE: {particleModal.size}</label>
+                            <input type="range" min="2" max="20" value={particleModal.size} onChange={e => setParticleModal({ ...particleModal, size: parseInt(e.target.value) })} className="accent-purple-500" />
+                        </div>
+
+                        <div className="flex flex-col gap-2">
+                            <label className="font-bold text-xs text-gray-500">AREA: {particleModal.area}</label>
+                            <input type="range" min="10" max="200" value={particleModal.area} onChange={e => setParticleModal({ ...particleModal, area: parseInt(e.target.value) })} className="accent-purple-500" />
+                        </div>
+
+                        <button
+                            onClick={() => {
+                                onUpdateRules(gameData.rules.map(r => {
+                                    if (r.id === particleModal.ruleId) {
+                                        const newEffects = [...r.effects];
+                                        newEffects[particleModal.effectIndex] = {
+                                            ...newEffects[particleModal.effectIndex],
+                                            particleType: particleModal.type,
+                                            particleCount: particleModal.count,
+                                            particleSize: particleModal.size,
+                                            particleArea: particleModal.area,
+                                            particleActorId: particleModal.particleActorId
+                                        };
+                                        return { ...r, effects: newEffects };
+                                    }
+                                    return r;
+                                }));
+                                setParticleModal(null);
+                            }}
+                            className="sketch-btn bg-[#22c55e] text-white py-2 font-bold mt-2"
+                        >
+                            SAVE
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* --- MODAL: SHOOT CONFIG --- */}
+            {shootConfigModal && (
+                <div className="absolute inset-0 z-50 bg-black/50 flex items-center justify-center backdrop-blur-sm animate-in fade-in">
+                    <div className="bg-white p-4 border-4 border-black rounded-xl shadow-2xl flex flex-col items-center gap-4 sketch-box">
+                        <h3 className="font-bold text-xl">SHOOT CONFIG</h3>
+
+                        <div className="flex flex-col gap-2 w-full">
+                            <label className="font-bold text-xs text-gray-500">SPAWN POINT</label>
+                            <div className="text-xs text-gray-400 mb-1">Click on the sprite to set offset</div>
+                            <div
+                                className="relative bg-gray-100 cursor-crosshair border-2 border-black overflow-hidden flex items-center justify-center self-center"
+                                style={{ width: '200px', height: '200px' }}
+                                onClick={(e) => {
+                                    const rect = e.currentTarget.getBoundingClientRect();
+                                    const x = e.clientX - rect.left - 100; // Center relative
+                                    const y = e.clientY - rect.top - 100;
+                                    setShootConfigModal({ ...shootConfigModal, offsetX: x, offsetY: y });
+                                }}
+                            >
+                                {/* Render Shooter Sprite */}
+                                {shootConfigModal.shooterId ? (
+                                    <img
+                                        src={getActorImage(shootConfigModal.shooterId)}
+                                        className="w-[100px] h-[100px] object-contain opacity-50"
+                                    />
+                                ) : (
+                                    <div className="text-gray-400 font-bold">?</div>
+                                )}
+
+                                {/* Render Crosshair at Offset */}
+                                <div
+                                    className="absolute w-4 h-4 border-2 border-red-500 rounded-full bg-red-500/50 pointer-events-none"
+                                    style={{
+                                        left: 100 + shootConfigModal.offsetX - 8,
+                                        top: 100 + shootConfigModal.offsetY - 8
+                                    }}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="flex flex-col gap-2 w-full">
+                            <label className="font-bold text-xs text-gray-500">PROJECTILE SIZE: {shootConfigModal.projectileSize?.toFixed(1) || 0.5}</label>
+                            <input
+                                type="range"
+                                min="0.1"
+                                max="2.0"
+                                step="0.1"
+                                value={shootConfigModal.projectileSize || 0.5}
+                                onChange={e => setShootConfigModal({ ...shootConfigModal, projectileSize: parseFloat(e.target.value) })}
+                                className="accent-red-500"
+                            />
+                        </div>
+
+                        <div className="flex gap-2 w-full">
+                            <button onClick={() => setShootConfigModal(null)} className="flex-1 py-2 font-bold text-gray-500 hover:bg-gray-100 rounded">CANCEL</button>
+                            <button
+                                onClick={() => {
+                                    onUpdateRules(gameData.rules.map(r => {
+                                        if (r.id === shootConfigModal.ruleId) {
+                                            const newEffects = [...r.effects];
+                                            newEffects[shootConfigModal.effectIndex] = {
+                                                ...newEffects[shootConfigModal.effectIndex],
+                                                shootOffsetX: shootConfigModal.offsetX,
+                                                shootOffsetY: shootConfigModal.offsetY,
+                                                projectileSize: shootConfigModal.projectileSize
+                                            };
+                                            return { ...r, effects: newEffects };
+                                        }
+                                        return r;
+                                    }));
+                                    setShootConfigModal(null);
+                                }}
+                                className="flex-1 bg-[#22c55e] text-white py-2 font-bold rounded"
+                            >
+                                SAVE
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* --- MODAL: CHANCE CONFIG --- */}
+            {chanceModal && (
+                <div className="absolute inset-0 z-50 bg-black/50 flex items-center justify-center backdrop-blur-sm animate-in fade-in">
+                    <div className="bg-white p-6 border-4 border-black rounded-xl shadow-2xl flex flex-col items-center gap-4 w-[300px] sketch-box">
+                        <h3 className="font-bold text-xl uppercase flex items-center gap-2"><Dices size={24} /> CHANCE</h3>
+
+                        <div className="flex flex-col gap-2 w-full">
+                            <div className="text-4xl font-bold text-center text-purple-600">
+                                {Math.round(chanceModal.chance * 100)}%
+                            </div>
+                            <input
+                                type="range"
+                                min="0"
+                                max="1"
+                                step="0.05"
+                                value={chanceModal.chance}
+                                onChange={e => setChanceModal({ ...chanceModal, chance: parseFloat(e.target.value) })}
+                                className="accent-purple-500 w-full h-4"
+                            />
+                            <div className="flex justify-between text-xs font-bold text-gray-400">
+                                <span>0%</span>
+                                <span>50%</span>
+                                <span>100%</span>
+                            </div>
+                        </div>
+
+                        <button
+                            onClick={() => {
+                                onUpdateRules(gameData.rules.map(r => r.id === chanceModal.ruleId ? { ...r, chance: chanceModal.chance } : r));
+                                setChanceModal(null);
+                            }}
+                            className="sketch-btn bg-[#22c55e] text-white py-2 font-bold mt-2 w-full"
+                        >
+                            SAVE
+                        </button>
+                    </div>
+                </div>
+            )}
+            {/* --- LEFT SIDEBAR: TRIGGERS & VARIABLES --- */}
+            <div className="w-44 bg-yellow-100 border-[3px] border-black/10 p-4 flex flex-col gap-6 items-center shadow-inner rounded-l-lg overflow-y-auto shrink-0">
                 <div className="w-full flex flex-col items-center gap-4">
                     <h3 className="font-bold text-xl text-yellow-800 flex items-center gap-2"><Puzzle size={20} /> STARTERS</h3>
                     {TRIGGER_MAGNETS.map((mag) => (
@@ -789,9 +1015,8 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                             <span className="font-bold text-md text-center leading-none">{mag.label}</span>
                         </div>
                     ))}
+                    <div className="w-full h-[2px] bg-black/10 my-2"></div>
                 </div>
-
-                <div className="w-full h-[2px] bg-black/10 my-2"></div>
 
                 <div className="w-full flex flex-col items-center gap-4">
                     <h3 className="font-bold text-lg text-red-800 flex items-center gap-2">MODIFIERS</h3>
@@ -799,33 +1024,25 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                         <Ban size={48} strokeWidth={3} className="text-red-500" />
                     </div>
                     <div draggable="true" onDragStart={(e) => e.dataTransfer.setData("type", "DICE_STICKER")} className="w-20 h-20 bg-white border-2 border-purple-500 rounded-xl flex items-center justify-center shadow-md cursor-grab hover:scale-110 transition-transform mt-2">
-                        <div className="text-4xl">🎲</div>
+                        <Dices size={48} strokeWidth={3} className="text-purple-500" />
                     </div>
                     <div className="text-xs text-center text-gray-500">Drag on a "WHEN" icon to modify it!</div>
+                    <div className="w-full h-[2px] bg-black/10 my-2"></div>
                 </div>
-
-                <div className="w-full h-[2px] bg-black/10 my-2"></div>
 
                 <div className="w-full flex flex-col items-center gap-2">
                     <h3 className="font-bold text-lg text-blue-800 flex items-center gap-2"><Hash size={20} /> VARIABLES</h3>
-
-                    {/* SCOPE FILTER LABEL */}
-                    {/* SCOPE FILTER LABEL */}
-                    <div className="text-[10px] font-bold text-gray-400 uppercase">
-                        ALL VARIABLES
-                    </div>
-
-                    {/* VARIABLE LIST ITEMS */}
+                    <div className="text-[10px] font-bold text-gray-400 uppercase">ALL VARIABLES</div>
                     {visibleVariables.map(v => (
                         <div
                             key={v.id}
-                            className="w-full bg-white border-2 border-blue-400 rounded-lg p-2 shadow-sm relative group cursor-grab active:cursor-grabbing hover:bg-blue-50 transition-colors"
                             draggable="true"
                             onDragStart={(e) => {
                                 e.dataTransfer.setData("type", "VARIABLE");
                                 e.dataTransfer.setData("variableId", v.id);
                                 e.dataTransfer.effectAllowed = "copy";
                             }}
+                            className="w-full bg-white border-2 border-blue-400 rounded-lg p-2 shadow-sm relative group cursor-grab active:cursor-grabbing hover:bg-blue-50 transition-colors"
                         >
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2 overflow-hidden" onClick={() => openEditVariableModal(v)}>
@@ -845,14 +1062,13 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                             <div className="text-[8px] text-gray-400 text-center mt-1">Initial: {v.initialValue}</div>
                         </div>
                     ))}
-
                     <button onClick={openNewVariableModal} className="w-full py-2 bg-blue-100 border-2 border-blue-500 border-dashed rounded-lg flex items-center justify-center gap-1 hover:bg-blue-200 font-bold text-blue-600 text-sm">
                         <Plus size={16} /> NEW
                     </button>
                 </div>
             </div>
 
-            {/* --- CENTER: THE STORY BOARD --- */}
+            {/* --- MAIN BOARD --- */}
             <div className="flex-1 flex flex-col bg-white border-[8px] border-[#d4a373] rounded-xl shadow-2xl relative overflow-hidden">
                 <div className="h-16 bg-[#f3e5f5] border-b-[3px] border-[#d4a373] flex items-center justify-center gap-4 shrink-0">
                     <button onClick={() => setViewScope('GLOBAL')} className={`flex items-center gap-2 px-6 py-2 rounded-full font-bold border-2 transition-all ${viewScope === 'GLOBAL' ? 'bg-blue-500 text-white border-black scale-105 shadow-md' : 'bg-white text-gray-400 border-gray-300 hover:bg-gray-50'}`}>
@@ -892,7 +1108,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                             onDragLeave={(e) => { e.currentTarget.classList.remove('scale-110'); }}
                                             onDrop={(e) => { e.currentTarget.classList.remove('scale-110'); handleSlotDrop(e, rule.id, 'trigger_modifier'); }}
                                         >
-                                            <div className="w-12 h-12 border-2 border-black rounded-full flex items-center justify-center bg-white">
+                                            <div className="w-12 h-12 border-2 border-black rounded-full flex items-center justify-center bg-white relative">
                                                 {rule.trigger === RuleTrigger.VAR_CHECK ? (
                                                     <Hash size={24} className="text-blue-500" />
                                                 ) : (
@@ -900,8 +1116,19 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                                         {getIcon(TRIGGER_MAGNETS.find(m => m.type === rule.trigger)?.icon || 'help')}
                                                     </div>
                                                 )}
+
+                                                {/* CHANCE OVERLAY */}
+                                                {rule.chance && (
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); setChanceModal({ ruleId: rule.id, chance: rule.chance! }); }}
+                                                        className="absolute -top-2 -right-2 bg-purple-500 text-white text-[10px] font-bold px-1 rounded-full border border-white z-10 flex items-center gap-0.5 hover:scale-110 transition-transform"
+                                                    >
+                                                        <Dices size={10} /> {Math.round(rule.chance * 100)}%
+                                                    </button>
+                                                )}
+
+                                                {rule.invert && <div className="absolute inset-0 flex items-center justify-center pointer-events-none"><Ban size={48} className="text-red-500 drop-shadow-md opacity-80" strokeWidth={3} /></div>}
                                             </div>
-                                            {rule.invert && <div className="absolute inset-0 flex items-center justify-center pointer-events-none"><Ban size={48} className="text-red-500 drop-shadow-md opacity-80" strokeWidth={3} /></div>}
 
                                             <button
                                                 onClick={() => setRecordingForRuleId(rule.id)}
@@ -988,15 +1215,20 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
 
                                 {/* --- RIGHT SIDE: MULTIPLE EFFECTS --- */}
                                 <div className={`flex-1 min-h-[80px] border-2 border-dashed border-gray-300 bg-gray-50 rounded-lg flex items-center gap-2 relative p-2 overflow-x-auto`} onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('bg-green-50'); }} onDragLeave={(e) => { e.currentTarget.classList.remove('bg-green-50'); }} onDrop={(e) => { e.currentTarget.classList.remove('bg-green-50'); handleSlotDrop(e, rule.id, 'effects'); }}>
-                                    {rule.effects.length === 0 && <div className="absolute inset-0 flex items-center justify-center pointer-events-none"><span className="text-xs text-gray-400 font-bold animate-pulse">DRAG EFFECTS HERE</span></div>}
-
+                                    {rule.effects?.length === 0 && <span className="text-xs text-gray-400 font-bold absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none">DRAG EFFECTS HERE</span>}
                                     {rule.effects.map((effect, idx) => {
-
-                                        // VARIABLE MODIFIER EFFECT
+                                        // VARIABLE MODIFIER
                                         if (effect.type === InteractionType.MODIFY_VAR) {
-                                            const v = gameData.variables?.find(va => va.id === effect.variableId);
+                                            const v = gameData.variables?.find(v => v.id === effect.variableId);
                                             return (
                                                 <div key={idx} className="relative group shrink-0">
+                                                    <div className="flex flex-col items-center bg-white border-2 border-blue-400 rounded-lg p-2 shadow-sm h-[90px] min-w-[80px] justify-center gap-1">
+                                                        <div className="text-[10px] font-bold text-blue-800 uppercase">VAR</div>
+                                                        <div className="font-bold text-sm truncate max-w-[70px]">{v?.name || '???'}</div>
+                                                        <div className="text-xs bg-blue-100 px-2 rounded font-bold">
+                                                            {effect.operation === 'ADD' ? '+' : effect.operation === 'SUB' ? '-' : '='} {effect.value}
+                                                        </div>
+                                                    </div>
                                                     <button
                                                         onClick={() => {
                                                             setVarConfigValue(effect.value || 1);
@@ -1004,91 +1236,150 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                                             setVarConfigVariableId(effect.variableId!);
                                                             setVariableModal({ ruleId: rule.id, type: 'EFFECT', effectIndex: idx, variableId: effect.variableId! });
                                                         }}
-                                                        className="flex flex-col items-center bg-cyan-50 border-2 border-cyan-500 rounded-lg p-2 shadow-sm h-[90px] min-w-[80px] justify-center gap-1 hover:bg-cyan-100"
+                                                        className="absolute -top-2 -left-2 w-6 h-6 bg-white border-2 border-black rounded-full flex items-center justify-center hover:scale-110 z-10 shadow-sm"
                                                     >
-                                                        <span className="text-[10px] font-bold text-cyan-600 uppercase">VAR</span>
-                                                        <div className="font-bold text-lg">{v?.name || '???'}</div>
-                                                        <div className="text-xs bg-cyan-200 px-2 rounded-full">{effect.operation} {effect.value}</div>
+                                                        <Edit3 size={12} />
                                                     </button>
-                                                    <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center hover:scale-110 z-10"><X size={14} /></button>
+                                                    <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                                                        <X size={12} />
+                                                    </button>
                                                 </div>
                                             );
                                         }
 
-                                        // SAY (Dialogue)
+                                        // SAY EFFECT
                                         if (effect.type === InteractionType.SAY) {
-                                            const targetIcon = effect.target === 'OBJECT' ? rule.objectId : rule.subjectId;
                                             return (
                                                 <div key={idx} className="relative group shrink-0">
-                                                    <div className="flex flex-col items-center bg-yellow-50 border-2 border-yellow-500 rounded-lg p-2 shadow-sm h-[90px] min-w-[80px] justify-center gap-1">
-                                                        <span className="text-[10px] font-bold text-yellow-700 uppercase">SAY</span>
-                                                        <div className="flex gap-1 items-center">
-                                                            {/* Target Selector */}
-                                                            <div className="flex flex-col items-center scale-90">
-                                                                <button onClick={() => setSelectionModal({ ruleId: rule.id, effectIndex: idx, type: 'ACTOR', label: "WHO SPEAKS?", allowTargetSelection: true, currentTarget: effect.target || 'SUBJECT', subjectActorId: rule.subjectId, objectActorId: rule.objectId })} className="w-8 h-8 border border-black rounded bg-gray-100 overflow-hidden flex items-center justify-center hover:scale-110 transition-transform" title="Who speaks?">
-                                                                    {effect.spawnActorId ? <img src={getActorImage(effect.spawnActorId)} className="w-full h-full object-contain" /> : (targetIcon ? <img src={getActorImage(targetIcon)} className="w-full h-full object-contain" /> : <span className="text-xs">?</span>)}
-                                                                </button>
-                                                            </div>
-
-                                                            {/* Text Editor Trigger */}
-                                                            <button
-                                                                onClick={() => setTextInputModal({ ruleId: rule.id, effectIndex: idx, currentText: effect.text || '' })}
-                                                                className="w-10 h-10 border-2 border-black rounded bg-yellow-200 hover:bg-yellow-300 flex items-center justify-center transition-transform hover:scale-105"
-                                                                title="Edit Text"
-                                                            >
-                                                                <MessageSquare size={20} className="text-yellow-800" />
-                                                            </button>
+                                                    <div className="flex flex-col items-center bg-white border-2 border-yellow-400 rounded-lg p-2 shadow-sm h-[90px] min-w-[80px] justify-center gap-1">
+                                                        <MessageSquare size={20} className="text-yellow-600" />
+                                                        <span className="text-[10px] font-bold text-gray-400">SAYS...</span>
+                                                        <div className="text-[10px] font-bold text-center leading-tight line-clamp-2 w-full bg-yellow-50 p-1 rounded border border-yellow-200">
+                                                            "{effect.text || '...'}"
                                                         </div>
-                                                        <div className="text-[10px] bg-yellow-200 px-2 rounded-full max-w-[70px] truncate mt-1">{effect.text || '...'}</div>
+
+                                                        {/* Target Selection for SAY */}
+                                                        <button
+                                                            onClick={() => setSelectionModal({
+                                                                ruleId: rule.id,
+                                                                effectIndex: idx,
+                                                                type: 'ACTOR',
+                                                                label: "WHO SAYS IT?",
+                                                                allowTargetSelection: true,
+                                                                currentTarget: effect.target || 'SUBJECT',
+                                                                subjectActorId: rule.subjectId,
+                                                                objectActorId: rule.objectId
+                                                            })}
+                                                            className="absolute -bottom-2 -right-2 w-6 h-6 bg-white border-2 border-black rounded-full flex items-center justify-center hover:scale-110 z-10 shadow-sm"
+                                                            title="Who speaks?"
+                                                        >
+                                                            {effect.spawnActorId ? <img src={getActorImage(effect.spawnActorId)} className="w-full h-full object-contain rounded-full" /> : <div className="text-[8px] font-bold">WHO</div>}
+                                                        </button>
                                                     </div>
-                                                    <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center hover:scale-110 z-10"><X size={14} /></button>
+
+                                                    <button
+                                                        onClick={() => setTextInputModal({ ruleId: rule.id, effectIndex: idx, currentText: effect.text || '' })}
+                                                        className="absolute -top-2 -left-2 w-6 h-6 bg-white border-2 border-black rounded-full flex items-center justify-center hover:scale-110 z-10 shadow-sm"
+                                                    >
+                                                        <Edit3 size={12} />
+                                                    </button>
+                                                    <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                                                        <X size={12} />
+                                                    </button>
                                                 </div>
                                             );
                                         }
 
-                                        // SHOOT (Projectile)
+                                        // SHOOT EFFECT
                                         if (effect.type === InteractionType.SHOOT) {
                                             return (
                                                 <div key={idx} className="relative group shrink-0">
-                                                    <div className="flex flex-col items-center bg-red-100 border-2 border-red-500 rounded-lg p-2 shadow-sm h-[90px] min-w-[80px] justify-center gap-1">
-                                                        <span className="text-[10px] font-bold text-red-700 uppercase">SHOOT</span>
-                                                        <button onClick={() => setSelectionModal({ ruleId: rule.id, effectIndex: idx, type: 'ACTOR', label: "SHOOT WHAT?", allowTargetSelection: false })} className="w-10 h-10 border border-black rounded bg-white overflow-hidden flex items-center justify-center hover:scale-110 transition-transform">
+                                                    <div className="flex flex-col items-center bg-white border-2 border-red-500 rounded-lg p-2 shadow-sm h-[90px] min-w-[80px] justify-center gap-1">
+                                                        <Crosshair size={24} className="text-red-500" />
+                                                        <span className="text-[10px] font-bold text-red-800">SHOOT</span>
+
+                                                        <button
+                                                            onClick={() => setSelectionModal({
+                                                                ruleId: rule.id,
+                                                                effectIndex: idx,
+                                                                type: 'ACTOR',
+                                                                label: "SHOOT WHAT?",
+                                                                allowTargetSelection: false
+                                                            })}
+                                                            className="w-8 h-8 border border-black rounded bg-red-100 hover:bg-red-200 flex items-center justify-center transition-transform hover:scale-105 relative"
+                                                        >
                                                             {effect.spawnActorId ? <img src={getActorImage(effect.spawnActorId)} className="w-full h-full object-contain" /> : <span className="text-xs">?</span>}
                                                         </button>
                                                     </div>
-                                                    <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center hover:scale-110 z-10"><X size={14} /></button>
+
+                                                    <button
+                                                        onClick={() => setShootConfigModal({
+                                                            ruleId: rule.id,
+                                                            effectIndex: idx,
+                                                            shooterId: rule.subjectId || '',
+                                                            offsetX: effect.shootOffsetX || 0,
+                                                            offsetY: effect.shootOffsetY || 0,
+                                                            projectileSize: effect.projectileSize || 0.5
+                                                        })}
+                                                        className="absolute -top-2 -left-2 w-6 h-6 bg-white border-2 border-black rounded-full flex items-center justify-center hover:scale-110 z-10 shadow-sm"
+                                                    >
+                                                        <Crosshair size={12} />
+                                                    </button>
+                                                    <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                                                        <X size={12} />
+                                                    </button>
                                                 </div>
                                             );
                                         }
 
-                                        // PARTICLES (Confetti)
+                                        // PARTICLES EFFECT
                                         if (effect.type === InteractionType.PARTICLES) {
                                             return (
                                                 <div key={idx} className="relative group shrink-0">
-                                                    <div className="flex flex-col items-center bg-purple-100 border-2 border-purple-500 rounded-lg p-2 shadow-sm h-[90px] min-w-[80px] justify-center gap-1">
-                                                        <span className="text-[10px] font-bold text-purple-700 uppercase">CONFETTI</span>
-                                                        <div className="text-2xl">✨</div>
+                                                    <div className="w-16 h-16 bg-purple-100 border-2 border-purple-500 rounded-lg flex flex-col items-center justify-center shadow-sm">
+                                                        <Sparkles size={24} className="text-purple-500" />
+                                                        <span className="text-[10px] font-bold text-purple-800">{effect.particleType || 'CONFETTI'}</span>
                                                     </div>
-                                                    <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center hover:scale-110 z-10"><X size={14} /></button>
+
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setParticleModal({
+                                                                ruleId: rule.id,
+                                                                effectIndex: idx,
+                                                                type: effect.particleType || 'CONFETTI',
+                                                                count: effect.particleCount || 20,
+                                                                size: effect.particleSize || 4,
+                                                                area: effect.particleArea || 50,
+                                                                particleActorId: effect.particleActorId
+                                                            });
+                                                        }}
+                                                        className="absolute -top-2 -left-2 w-6 h-6 bg-white border-2 border-black rounded-full flex items-center justify-center hover:scale-110 z-10 shadow-sm"
+                                                        title="Configure Particles"
+                                                    >
+                                                        <Settings size={12} />
+                                                    </button>
+
+                                                    <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                                                        <X size={12} />
+                                                    </button>
                                                 </div>
                                             );
                                         }
 
                                         // SPAWN / SWAP / ANIM / EAT (Actor Based)
-                                        if (effect.type === InteractionType.SPAWN || effect.type === InteractionType.SWAP || effect.type === InteractionType.PLAY_ANIM || effect.type === InteractionType.DESTROY_OBJECT) {
+                                        if ([InteractionType.SPAWN, InteractionType.SWAP, InteractionType.PLAY_ANIM, InteractionType.DESTROY_OBJECT].includes(effect.type)) {
                                             const isSpawn = effect.type === InteractionType.SPAWN;
                                             const isSwap = effect.type === InteractionType.SWAP;
                                             const isAnim = effect.type === InteractionType.PLAY_ANIM;
                                             const isEat = effect.type === InteractionType.DESTROY_OBJECT;
                                             let label = isSpawn ? "SPAWN" : isSwap ? "SWAP" : "ANIM";
                                             if (isEat) label = "EAT";
-                                            const colorClass = isSpawn ? "purple" : isSwap ? "pink" : "fuchsia";
-                                            let bgColor = isSpawn ? "bg-purple-100" : isSwap ? "bg-pink-100" : "bg-fuchsia-100";
+
                                             let borderColor = isSpawn ? "border-purple-500" : isSwap ? "border-pink-500" : "border-fuchsia-500";
                                             let textColor = isSpawn ? "text-purple-600" : isSwap ? "text-pink-600" : "text-fuchsia-600";
-                                            if (isEat) { bgColor = "bg-red-100"; borderColor = "border-red-500"; textColor = "text-red-600"; }
-                                            let Icon = isSpawn ? Sparkles : isSwap ? RefreshCw : Clapperboard;
-                                            if (isEat) Icon = Utensils;
+                                            if (isEat) { borderColor = "border-red-500"; textColor = "text-red-600"; }
+
                                             const targetIcon = effect.target === 'OBJECT' ? rule.objectId : rule.subjectId;
                                             const showTarget = (isSwap || isAnim || isEat) && (rule.trigger === RuleTrigger.COLLISION || rule.trigger === RuleTrigger.CLICK);
 
@@ -1106,30 +1397,28 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                                                 </div>
                                                             )}
                                                             {(isSpawn || isSwap || isAnim) && (
-                                                                <button onClick={() => setSelectionModal({ ruleId: rule.id, effectIndex: idx, type: 'ACTOR', label: isSpawn ? "SPAWN WHAT?" : isSwap ? "SWAP WHO FOR WHAT?" : "PLAY WHICH ANIM?", allowTargetSelection: showTarget, allowLoop: isAnim, currentLoop: effect.isLoop || false, currentTarget: effect.target || 'SUBJECT', subjectActorId: rule.subjectId, objectActorId: rule.objectId })} className={`w-10 h-10 border-2 border-black rounded ${bgColor} hover:brightness-95 flex items-center justify-center transition-transform hover:scale-105 relative`}>
-                                                                    {effect.spawnActorId ? <img src={getActorImage(effect.spawnActorId)} className="w-full h-full object-contain" /> : <Icon size={20} className={textColor} strokeWidth={3} />}
+                                                                <button onClick={() => setSelectionModal({ ruleId: rule.id, effectIndex: idx, type: 'ACTOR', label: isSpawn ? "SPAWN WHAT?" : isSwap ? "SWAP WHO FOR WHAT?" : "PLAY WHICH ANIM?", allowTargetSelection: showTarget, allowLoop: isAnim, currentLoop: effect.isLoop || false, currentTarget: effect.target || 'SUBJECT', subjectActorId: rule.subjectId, objectActorId: rule.objectId })} className="w-10 h-10 border-2 border-black rounded bg-white hover:bg-gray-50 flex items-center justify-center relative overflow-hidden">
+                                                                    {effect.spawnActorId ? <img src={getActorImage(effect.spawnActorId)} className="w-full h-full object-contain" /> : <HelpCircle size={20} className={textColor} strokeWidth={3} />}
                                                                     {!effect.spawnActorId && <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse" />}
                                                                 </button>
                                                             )}
                                                             {isEat && (
-                                                                <button onClick={() => { if (effect.target === 'OBJECT' && !rule.objectId) { setSelectionModal({ ruleId: rule.id, effectIndex: idx, type: 'ACTOR', label: "DESTROY WHICH TYPE?", allowTargetSelection: true, currentTarget: 'OBJECT', subjectActorId: rule.subjectId, objectActorId: rule.objectId }); } }} className={`w-10 h-10 border-2 border-black rounded ${bgColor} flex items-center justify-center relative`}>
-                                                                    {(effect.spawnActorId && (effect.target === 'OBJECT' && !rule.objectId)) ? <img src={getActorImage(effect.spawnActorId)} className="w-full h-full object-contain" /> : <Icon size={24} className={textColor} strokeWidth={3} />}
+                                                                <button onClick={() => { if (effect.target === 'OBJECT' && !rule.objectId) { setSelectionModal({ ruleId: rule.id, effectIndex: idx, type: 'ACTOR', label: "DESTROY WHICH TYPE?", allowTargetSelection: true, currentTarget: 'OBJECT', subjectActorId: rule.subjectId, objectActorId: rule.objectId }); } }} className={`w-10 h-10 border-2 border-black rounded bg-red-100 flex items-center justify-center relative`}>
+                                                                    {(effect.spawnActorId && (effect.target === 'OBJECT' && !rule.objectId)) ? <img src={getActorImage(effect.spawnActorId)} className="w-full h-full object-contain" /> : <Skull size={24} className={textColor} strokeWidth={3} />}
                                                                 </button>
                                                             )}
-                                                            {isSpawn && effect.spawnActorId && (
-                                                                <button onClick={() => setPickingLocationFor({ ruleId: rule.id, effectIndex: idx })} className={`w-6 h-10 border-2 border-black rounded flex items-center justify-center transition-colors ${effect.spawnX !== undefined ? 'bg-green-300' : 'bg-gray-100 hover:bg-gray-200'}`} title="Set Location"><Crosshair size={14} className={effect.spawnX !== undefined ? 'text-black' : 'text-gray-400'} /></button>
-                                                            )}
-                                                            {isAnim && effect.isLoop && <div className="absolute top-0 right-0 bg-purple-600 rounded-full p-[2px] border border-white"><Repeat size={8} className="text-white" /></div>}
                                                         </div>
+                                                        {isSpawn && effect.spawnActorId && (
+                                                            <button onClick={() => setPickingLocationFor({ ruleId: rule.id, effectIndex: idx })} className={`absolute -top-2 -left-2 w-6 h-6 border-2 border-black rounded-full flex items-center justify-center transition-colors shadow-sm z-10 hover:scale-110 ${effect.spawnX !== undefined ? 'bg-green-300' : 'bg-white hover:bg-gray-200'}`} title="Set Location"><Crosshair size={12} className={effect.spawnX !== undefined ? 'text-black' : 'text-gray-400'} /></button>
+                                                        )}
+                                                        {isAnim && effect.isLoop && <div className="absolute top-0 right-0 bg-purple-600 rounded-full p-[2px] border border-white"><Repeat size={8} className="text-white" /></div>}
                                                     </div>
                                                     <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center hover:scale-110 z-10"><X size={14} /></button>
                                                 </div>
                                             );
                                         }
 
-
-
-                                        // STEP (Movement)
+                                        // STEP EFFECT
                                         if (effect.type === InteractionType.STEP) {
                                             return (
                                                 <div key={idx} className="relative group shrink-0">
@@ -1161,6 +1450,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                             );
                                         }
 
+                                        // CHANGE SCENE
                                         if (effect.type === InteractionType.CHANGE_SCENE) {
                                             return (
                                                 <div key={idx} className="relative group shrink-0">
@@ -1176,18 +1466,20 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                             );
                                         }
 
-                                        if (effect.type === InteractionType.THEN) {
+                                        // WAIT EFFECT
+                                        if (effect.type === InteractionType.WAIT) {
                                             return (
                                                 <div key={idx} className="relative group shrink-0 flex items-center justify-center px-2">
                                                     <div className="flex flex-col items-center bg-white border-2 border-gray-400 rounded-lg p-2 shadow-sm h-[90px] min-w-[80px] justify-center gap-1">
                                                         <span className="text-[10px] font-bold text-gray-500 uppercase">THEN</span>
                                                         <div className="w-12 h-10 flex items-center justify-center"><ChevronsRight size={28} className="text-gray-400" /></div>
                                                     </div>
-                                                    <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 right-0 bg-red-500 text-white rounded-full p-0.5 w-5 h-5 flex items-center justify-center hover:scale-110 z-10"><X size={12} /></button>
+                                                    <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5 w-5 h-5 flex items-center justify-center hover:scale-110 z-10"><X size={12} /></button>
                                                 </div>
                                             );
                                         }
 
+                                        // GENERIC / OTHER
                                         const magnet = EFFECT_MAGNETS.find(m => m.type === effect.type);
                                         return (
                                             <div key={idx} className="relative group shrink-0">
@@ -1203,11 +1495,15 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                             </div>
                         </div>
                     ))}
+                    <button onClick={() => onUpdateRules([...gameData.rules, { id: Math.random().toString(36).substr(2, 9), scope: activeScopeId, trigger: RuleTrigger.START, subjectId: '', objectId: '', effects: [] }])} className="mt-8 bg-black text-white font-bold py-3 px-8 rounded-full shadow-lg hover:scale-105 transition-transform flex items-center gap-2 border-2 border-white ring-4 ring-black/20">
+                        <Plus size={24} /> NEW RULE
+                    </button>
+                    <div className="h-20"></div>
                 </div>
             </div>
 
-            {/* --- RIGHT: EFFECTS (DO) --- */}
-            <div className="w-40 bg-green-100 border-[3px] border-black/10 p-4 flex flex-col gap-4 items-center shadow-inner rounded-r-lg overflow-y-auto shrink-0">
+            {/* --- RIGHT SIDEBAR: AVAILABLE EFFECTS --- */}
+            <div className="w-64 bg-green-100 border-[3px] border-black/10 p-4 flex flex-col gap-4 items-center shadow-inner rounded-r-lg overflow-y-auto shrink-0">
                 <h3 className="font-bold text-xl text-green-800 flex items-center gap-2">EFFECTS <Puzzle size={20} /></h3>
                 {EFFECT_MAGNETS.map((mag) => (
                     <div key={mag.type} draggable="true" onDragStart={(e) => { e.dataTransfer.setData("type", "NEW_EFFECT_MAGNET"); e.dataTransfer.setData("interaction", mag.type); }} className="w-full bg-white border-2 border-green-500 rounded-lg p-2 shadow-md cursor-grab active:cursor-grabbing hover:scale-105 transition-transform flex flex-col items-center gap-1 group">
@@ -1217,7 +1513,6 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                     </div>
                 ))}
             </div>
-
         </div>
     );
 };

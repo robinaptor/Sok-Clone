@@ -48,6 +48,7 @@ export const INTERACTION_LABELS: Record<InteractionType, string> = {
   [InteractionType.DESTROY_OBJECT]: 'Eats',
   [InteractionType.DESTROY_SUBJECT]: 'Dies by',
   [InteractionType.WIN]: 'Wins',
+  [InteractionType.WAIT]: 'Waits',
   [InteractionType.CHANGE_SCENE]: 'Goes to Next Scene',
   [InteractionType.SPAWN]: 'Appears',
   [InteractionType.SWAP]: 'Transforms',

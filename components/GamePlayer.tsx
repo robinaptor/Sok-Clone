@@ -161,6 +161,9 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
     // SHAKE STATE
     const [shakeIntensity, setShakeIntensity] = useState(0);
 
+    // PARTICLES STATE
+    const [particles, setParticles] = useState<{ id: string, x: number, y: number, color: string, vx: number, vy: number, life: number, size: number, type: 'CONFETTI' | 'EXPLOSION' | 'SMOKE' | 'RAIN', actorId?: string }[]>([]);
+
     const [status, setStatus] = useState<'LOADING' | 'READY' | 'PLAYING' | 'WON' | 'LOST' | 'TRANSITION'>('LOADING');
     const [loadedSoundCount, setLoadedSoundCount] = useState(0);
 
@@ -170,6 +173,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
     const executingRuleIds = useRef<Set<string>>(new Set());
     const lastTimerExecution = useRef<Record<string, number>>({});
     const activeCollisions = useRef<Set<string>>(new Set());
+    const requestRef = useRef<number>(0); // For Physics Loop
 
     const objectsRef = useRef<LevelObject[]>([]);
     useEffect(() => { objectsRef.current = objects; }, [objects]);
@@ -269,6 +273,73 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
         setShakeIntensity(0);
     };
 
+    // PHYSICS LOOP (Projectiles & Particles)
+    useEffect(() => {
+        let lastTime = performance.now();
+        const loop = (time: number) => {
+            const dt = (time - lastTime) / 1000; // Delta time in seconds
+            lastTime = time;
+
+            // Update Objects (Projectiles)
+            setObjects(prev => {
+                let changed = false;
+                const next = prev.map(o => {
+                    if (o.vx || o.vy) {
+                        changed = true;
+                        let nx = o.x + (o.vx || 0) * dt * 60; // Scale speed
+                        let ny = o.y + (o.vy || 0) * dt * 60;
+
+                        // Bounds check for projectiles (destroy if out of bounds)
+                        if (nx < -50 || nx > SCENE_WIDTH + 50 || ny < -50 || ny > SCENE_HEIGHT + 50) {
+                            return null; // Mark for deletion
+                        }
+                        return { ...o, x: nx, y: ny };
+                    }
+                    return o;
+                }).filter(Boolean) as LevelObject[];
+
+                return changed ? next : prev;
+            });
+
+            // Update Particles
+            setParticles(prev => {
+                if (prev.length === 0) return prev;
+                return prev.map(p => {
+                    let newVx = p.vx;
+                    let newVy = p.vy;
+                    let newLife = p.life - dt;
+
+                    // Physics based on Type
+                    if (p.type === 'CONFETTI') {
+                        newVy += 0.5; // Gravity
+                        newVx *= 0.98; // Air resistance
+                    } else if (p.type === 'EXPLOSION') {
+                        newVy += 0.2;
+                        newVx *= 0.95;
+                    } else if (p.type === 'SMOKE') {
+                        newVy -= 0.5; // Rise up
+                        newVx += (Math.random() - 0.5) * 0.5; // Wiggle
+                    } else if (p.type === 'RAIN') {
+                        newVy = 15; // Fall fast
+                    }
+
+                    return {
+                        ...p,
+                        x: p.x + newVx * dt * 60,
+                        y: p.y + newVy * dt * 60,
+                        vx: newVx,
+                        vy: newVy,
+                        life: newLife
+                    };
+                }).filter(p => p.life > 0);
+            });
+
+            requestRef.current = requestAnimationFrame(loop);
+        };
+        requestRef.current = requestAnimationFrame(loop);
+        return () => cancelAnimationFrame(requestRef.current);
+    }, []);
+
     // Bubble Cleanup Timer
     useEffect(() => {
         const interval = setInterval(() => {
@@ -345,6 +416,9 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
 
             if (rule.invert) match = !match;
 
+            // CHANCE CHECK
+            if (match && rule.chance && Math.random() > rule.chance) match = false;
+
             if (match) {
                 executingRuleIds.current.add(rule.id);
                 if (rule.soundId) playSound(rule.soundId);
@@ -366,7 +440,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
         let previousActionDuration = 0;
 
         for (const effect of effects) {
-            if (effect.type === InteractionType.THEN) {
+            if (effect.type === InteractionType.THEN || effect.type === InteractionType.WAIT) {
                 if (previousActionDuration > 0) {
                     await new Promise(resolve => setTimeout(resolve, previousActionDuration));
                 }
@@ -576,6 +650,110 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                         }));
                         previousActionDuration = 200; // Small delay for steps
                         break;
+                    case InteractionType.SHOOT:
+                        if (effect.spawnActorId) {
+                            const shooter = objectsRef.current.find(o => o.id === targetId);
+                            if (shooter) {
+                                let vx = 0;
+                                let vy = 0;
+                                const speed = 8; // Projectile speed
+
+                                // Find nearest other object to shoot at
+                                const others = objectsRef.current.filter(o => o.id !== shooter.id);
+                                let closest = null;
+                                let minDist = Infinity;
+                                for (const o of others) {
+                                    const d = Math.hypot(o.x - shooter.x, o.y - shooter.y);
+                                    if (d < minDist) {
+                                        minDist = d;
+                                        closest = o;
+                                    }
+                                }
+
+                                if (closest) {
+                                    const dx = closest.x - shooter.x;
+                                    const dy = closest.y - shooter.y;
+                                    const dist = Math.hypot(dx, dy);
+                                    if (dist > 0) {
+                                        vx = (dx / dist) * speed;
+                                        vy = (dy / dist) * speed;
+                                    }
+                                } else {
+                                    // Default direction if no target? Down?
+                                    vy = speed;
+                                }
+
+                                // Calculate Spawn Position with Offset
+                                const spawnX = shooter.x + (effect.shootOffsetX || 0);
+                                const spawnY = shooter.y + (effect.shootOffsetY || 0);
+
+                                const projectile: LevelObject = {
+                                    id: Math.random().toString(36).substr(2, 9),
+                                    actorId: effect.spawnActorId,
+                                    x: spawnX,
+                                    y: spawnY,
+                                    scale: effect.projectileSize || 0.5,
+                                    vx,
+                                    vy,
+                                    isEphemeral: false
+                                };
+
+                                setObjects(prev => [...prev, projectile]);
+                            }
+                        }
+                        previousActionDuration = 0;
+                        break;
+                    case InteractionType.PARTICLES:
+                        const targetObj = objectsRef.current.find(o => o.id === targetId);
+                        if (targetObj) {
+                            const pType = effect.particleType || 'CONFETTI';
+                            const pCount = effect.particleCount || 20;
+                            const pSize = effect.particleSize || 4;
+                            const pArea = effect.particleArea || 20;
+
+                            const colors = ['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff', '#ffffff'];
+                            if (pType === 'SMOKE') colors.length = 0; // Reset for smoke
+
+                            const newParticles = Array.from({ length: pCount }).map(() => {
+                                const angle = Math.random() * Math.PI * 2;
+                                const speed = Math.random() * 5 + 2;
+                                const offsetR = Math.random() * pArea;
+
+                                let color = colors[Math.floor(Math.random() * colors.length)];
+                                if (pType === 'SMOKE') color = `rgba(200, 200, 200, ${Math.random() * 0.5 + 0.5})`;
+                                if (pType === 'RAIN') color = '#4444ff';
+
+                                let vx = Math.cos(angle) * speed;
+                                let vy = Math.sin(angle) * speed - 5;
+                                let life = 1.0 + Math.random();
+
+                                if (pType === 'SMOKE') {
+                                    vx = (Math.random() - 0.5) * 2;
+                                    vy = -Math.random() * 2 - 1;
+                                    life = 2.0;
+                                } else if (pType === 'RAIN') {
+                                    vx = 0;
+                                    vy = 10;
+                                    life = 0.5;
+                                }
+
+                                return {
+                                    id: Math.random().toString(36),
+                                    x: targetObj.x + ACTOR_SIZE / 2 + Math.cos(angle) * offsetR,
+                                    y: targetObj.y + ACTOR_SIZE / 2 + Math.sin(angle) * offsetR,
+                                    color: color || '#fff',
+                                    vx,
+                                    vy,
+                                    life,
+                                    size: pSize,
+                                    type: pType,
+                                    actorId: effect.particleActorId
+                                };
+                            });
+                            setParticles(prev => [...prev, ...newParticles]);
+                        }
+                        previousActionDuration = 0;
+                        break;
                 }
             }
         }
@@ -653,6 +831,9 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                 // Invert: Not Match AND Invert
                 const shouldRun = (isMatch && !rule.invert) || (!isMatch && rule.invert);
 
+                // CHANCE CHECK
+                if (shouldRun && rule.chance && Math.random() > rule.chance) return;
+
                 if (shouldRun) {
                     // Find all subjects for this rule
                     const subjects = objectsRef.current.filter(o => o.actorId === rule.subjectId);
@@ -726,6 +907,11 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
             }
 
             if (shouldRun) {
+                // CHANCE CHECK
+                if (rule.chance && Math.random() > rule.chance) shouldRun = false;
+            }
+
+            if (shouldRun) {
                 executingRuleIds.current.add(rule.id);
                 if (rule.soundId) playSound(rule.soundId);
                 await executeRuleEffects(rule.id, rule.effects, targetObjId, null);
@@ -773,6 +959,9 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                     for (const rule of rules) {
                         const shouldTrigger = rule.invert ? false : true;
                         if (shouldTrigger) {
+                            // CHANCE CHECK
+                            if (rule.chance && Math.random() > rule.chance) continue;
+
                             const hasBlock = rule.effects.some(e => e.type === InteractionType.BLOCK);
                             const hasPush = rule.effects.some(e => e.type === InteractionType.PUSH);
                             if (hasBlock || hasPush) allowMove = false;
@@ -836,6 +1025,25 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                     >
                         <BackgroundLayer image={currentScene?.backgroundImage} frames={currentScene?.backgroundFrames} />
 
+                        {/* PARTICLES */}
+                        {particles.map(p => (
+                            <div
+                                key={p.id}
+                                className={`absolute rounded-sm ${p.type === 'SMOKE' && !p.actorId ? 'rounded-full blur-sm' : ''}`}
+                                style={{
+                                    left: p.x,
+                                    top: p.y,
+                                    width: p.size,
+                                    height: p.size,
+                                    backgroundColor: p.actorId ? 'transparent' : p.color,
+                                    opacity: Math.min(1, p.life),
+                                    transform: `rotate(${p.life * 360}deg)`
+                                }}
+                            >
+                                {p.actorId && <img src={getActor(p.actorId)?.imageData} className="w-full h-full object-contain" />}
+                            </div>
+                        ))}
+                        {/* UI OVERLAY */}
                         {/* VARIABLES HUD */}
                         {status === 'PLAYING' && gameData.variables && gameData.variables.length > 0 && (
                             <div className="absolute top-4 left-4 z-40 flex flex-col gap-2">
