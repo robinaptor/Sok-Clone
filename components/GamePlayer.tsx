@@ -168,6 +168,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
     const dragOffset = useRef({ x: 0, y: 0 });
 
     const executingRuleIds = useRef<Set<string>>(new Set());
+    const lastTimerExecution = useRef<Record<string, number>>({});
     const activeCollisions = useRef<Set<string>>(new Set());
 
     const objectsRef = useRef<LevelObject[]>([]);
@@ -563,6 +564,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
     };
 
     // START & TIMER RULES
+    // START & TIMER RULES
     useEffect(() => {
         if (status !== 'PLAYING') return;
         const activeRules = getActiveRules();
@@ -583,22 +585,31 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
         const timerRules = activeRules.filter(r => r.trigger === RuleTrigger.TIMER);
         const interval = setInterval(() => {
             if (status !== 'PLAYING') return;
+            const now = Date.now();
+
             timerRules.forEach(rule => {
-                const targets = objectsRef.current.filter(o => o.actorId === rule.subjectId);
-                if (targets.length > 0) {
-                    targets.forEach(t => {
+                const lastTime = lastTimerExecution.current[rule.id] || 0;
+                const intervalMs = (rule.interval || 2) * 1000;
+
+                if (now - lastTime >= intervalMs) {
+                    lastTimerExecution.current[rule.id] = now;
+
+                    const targets = objectsRef.current.filter(o => o.actorId === rule.subjectId);
+                    if (targets.length > 0) {
+                        targets.forEach(t => {
+                            if (rule.soundId) playSound(rule.soundId);
+                            executeRuleEffects(rule.id, rule.effects, t.id, null);
+                        });
+                    } else if (!rule.subjectId) {
                         if (rule.soundId) playSound(rule.soundId);
-                        executeRuleEffects(rule.id, rule.effects, t.id, null);
-                    });
-                } else if (!rule.subjectId) {
-                    if (rule.soundId) playSound(rule.soundId);
-                    executeRuleEffects(rule.id, rule.effects, 'GLOBAL', null);
+                        executeRuleEffects(rule.id, rule.effects, 'GLOBAL', null);
+                    }
                 }
             });
-        }, 2000);
+        }, 100); // Check every 100ms
 
         return () => clearInterval(interval);
-    }, [activeSceneId, status, objects.length]);
+    }, [activeSceneId, status]); // Removed objects.length to prevent re-triggering START on spawn
 
     // KEYBOARD CONTROLS (KEY TRIGGER)
     useEffect(() => {

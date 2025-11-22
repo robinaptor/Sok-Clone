@@ -639,6 +639,19 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                 ))}
                             </div>
                         )}
+
+                        {/* LOOP TOGGLE FOR ANIMATIONS */}
+                        {selectionModal.allowLoop && (
+                            <div className="flex justify-center pt-2 border-t-2 border-black/10">
+                                <button
+                                    onClick={() => setSelectionModal({ ...selectionModal, currentLoop: !selectionModal.currentLoop })}
+                                    className={`flex items-center gap-2 px-4 py-2 rounded-full border-2 font-bold transition-all ${selectionModal.currentLoop ? 'bg-purple-500 text-white border-purple-700' : 'bg-gray-100 text-gray-500 border-gray-300'}`}
+                                >
+                                    <Repeat size={16} />
+                                    {selectionModal.currentLoop ? 'LOOPING' : 'PLAY ONCE'}
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
@@ -845,6 +858,25 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                                 {rule.key === 'RIGHT' && '➡️'}
                                                 {!rule.key && '⬆️'}
                                             </span>
+                                        </button>
+                                    )}
+
+                                    {/* TIMER TRIGGER CONFIG */}
+                                    {rule.trigger === RuleTrigger.TIMER && (
+                                        <button
+                                            onClick={() => {
+                                                const val = prompt("Enter timer interval in seconds:", (rule.interval || 2).toString());
+                                                if (val) {
+                                                    const num = parseFloat(val);
+                                                    if (!isNaN(num) && num > 0) {
+                                                        onUpdateRules(gameData.rules.map(r => r.id === rule.id ? { ...r, interval: num } : r));
+                                                    }
+                                                }
+                                            }}
+                                            className="px-3 py-2 bg-blue-100 border-2 border-blue-500 border-dashed rounded flex flex-col items-center justify-center hover:bg-blue-200 min-w-[60px]"
+                                        >
+                                            <span className="text-[10px] font-bold text-blue-800">EVERY</span>
+                                            <span className="font-bold text-xl leading-none">{rule.interval || 2}s</span>
                                         </button>
                                     )}
 
