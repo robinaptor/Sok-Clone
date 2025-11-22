@@ -53,11 +53,13 @@ export const INTERACTION_LABELS: Record<InteractionType, string> = {
   [InteractionType.SWAP]: 'Transforms',
   [InteractionType.PLAY_ANIM]: 'Plays Anim',
   [InteractionType.MODIFY_VAR]: 'Modifies Variable',
-  [InteractionType.SAY]: 'Says',
-  [InteractionType.NOTHING]: 'Ignores',
-  [InteractionType.THEN]: 'Then...',
-  [InteractionType.PUSH]: 'Pushes',
-  [InteractionType.BLOCK]: 'Blocks'
+  [InteractionType.SAY]: 'SAY',
+  [InteractionType.SHOOT]: 'SHOOT',
+  [InteractionType.PARTICLES]: 'CONFETTI',
+  [InteractionType.NOTHING]: 'NOTHING',
+  [InteractionType.THEN]: 'THEN',
+  [InteractionType.PUSH]: 'PUSH',
+  [InteractionType.BLOCK]: 'BLOCK',
 };
 
 // NEW: Magnet Definitions categorized
@@ -79,10 +81,11 @@ export const EFFECT_MAGNETS = [
 
   // The 3 Special Effects
   { type: InteractionType.SPAWN, label: 'SPAWN', color: '#d8b4fe', icon: 'sparkles' }, // Purple
+  { type: InteractionType.SAY, label: 'SAY', icon: 'message-circle', color: '#fde047' }, // Yellow-300
+  { type: InteractionType.SHOOT, label: 'SHOOT', icon: 'crosshair', color: '#fca5a5' }, // Red-300
+  { type: InteractionType.PARTICLES, label: 'CONFETTI', icon: 'sparkles', color: '#d8b4fe' }, // Purple-300
   { type: InteractionType.SWAP, label: 'SWAP', color: '#f0abfc', icon: 'refresh' }, // Pink
   { type: InteractionType.PLAY_ANIM, label: 'ANIM', color: '#e879f9', icon: 'film' }, // Magenta
-
-  { type: InteractionType.SAY, label: 'SAY', color: '#fde047', icon: 'message-circle' }, // Yellow-ish (NEW)
 
   { type: InteractionType.CHANGE_SCENE, label: 'DOOR', color: '#c084fc', icon: 'door-open' }, // Purple
   { type: InteractionType.WIN, label: 'WIN', color: '#facc15', icon: 'trophy' }, // Gold

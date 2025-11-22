@@ -60,6 +60,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
     const [editingVarId, setEditingVarId] = useState<string | null>(null);
     const [newVarName, setNewVarName] = useState("");
     const [newVarInitial, setNewVarInitial] = useState(0);
+    const [newVarScope, setNewVarScope] = useState<'GLOBAL' | 'SCENE'>('GLOBAL');
 
     // Form state for variable config modal
     const [varConfigValue, setVarConfigValue] = useState<number>(1);
@@ -73,10 +74,11 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
     // Filter variables based on current scope view
     // GLOBAL view: Show GLOBAL vars
     // LOCAL view: Show LOCAL vars for this scene
-    const visibleVariables = (gameData.variables || []).filter(v => {
-        if (viewScope === 'GLOBAL') return v.scope === 'GLOBAL' || !v.scope;
-        return v.scope === currentSceneId;
-    });
+    // Filter variables based on current scope view
+    // GLOBAL view: Show GLOBAL vars
+    // LOCAL view: Show LOCAL vars for this scene
+    // UPDATE: Show ALL variables, but sort them? Or just list them all.
+    const visibleVariables = (gameData.variables || []);
 
     // --- HELPER: Get Icon Component ---
     const getIcon = (name: string) => {
@@ -102,6 +104,8 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
             case 'keyboard': return <Keyboard size={20} strokeWidth={3} />;
             case 'footprints': return <Footprints size={20} strokeWidth={3} />;
             case 'activity': return <Activity size={20} strokeWidth={3} />;
+            case 'crosshair': return <Crosshair size={20} strokeWidth={3} />;
+            case 'dice': return <div className="border-2 border-current rounded w-5 h-5 flex items-center justify-center font-bold text-[10px]">50</div>;
             default: return <HelpCircle size={20} />;
         }
     };
@@ -111,6 +115,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
     const openNewVariableModal = () => {
         setNewVarName("");
         setNewVarInitial(0);
+        setNewVarScope(viewScope === 'GLOBAL' ? 'GLOBAL' : 'SCENE');
         setEditingVarId(null);
         setShowNewVarModal(true);
     };
@@ -118,6 +123,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
     const openEditVariableModal = (v: GlobalVariable) => {
         setNewVarName(v.name);
         setNewVarInitial(v.initialValue);
+        setNewVarScope(v.scope === 'GLOBAL' || !v.scope ? 'GLOBAL' : 'SCENE');
         setEditingVarId(v.id);
         setShowNewVarModal(true);
     };
@@ -138,7 +144,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                 id: Math.random().toString(36).substr(2, 9),
                 name: newVarName.trim(),
                 initialValue: Number(newVarInitial) || 0,
-                scope: activeScopeId === 'GLOBAL' ? 'GLOBAL' : currentSceneId
+                scope: newVarScope === 'GLOBAL' ? 'GLOBAL' : currentSceneId
             };
             onUpdateVariables([...(gameData.variables || []), newVar]);
         }
@@ -261,6 +267,19 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                     }, 50);
                 }
 
+                // Handle SHOOT magnet
+                if (interaction === InteractionType.SHOOT) {
+                    setTimeout(() => {
+                        setSelectionModal({
+                            ruleId,
+                            effectIndex: gameData.rules.find(r => r.id === ruleId)!.effects.length - 1,
+                            type: 'ACTOR',
+                            label: 'SHOOT WHAT?',
+                            allowTargetSelection: false
+                        });
+                    }, 50);
+                }
+
                 onUpdateRules(gameData.rules.map(r => {
                     if (r.id === ruleId) {
                         return { ...r, effects: [...r.effects, newEffect] };
@@ -271,6 +290,9 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
         }
         else if (type === "NOT_STICKER" && slot === 'trigger_modifier') {
             onUpdateRules(gameData.rules.map(r => r.id === ruleId ? { ...r, invert: !r.invert } : r));
+        }
+        else if (type === "DICE_STICKER" && slot === 'trigger_modifier') {
+            onUpdateRules(gameData.rules.map(r => r.id === ruleId ? { ...r, chance: r.chance === 0.5 ? undefined : 0.5 } : r));
         }
         // DRAGGING A VARIABLE ONTO THE TRIGGER SLOT = CONVERT TO VAR CHECK
         else if (type === "VARIABLE" && slot === 'trigger_modifier') {
@@ -350,13 +372,20 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
 
                 if (type === 'ACTOR') {
                     const currentEffect = newEffects[effectIndex];
-                    if (currentEffect.type === InteractionType.DESTROY_OBJECT || currentEffect.type === InteractionType.SAY) {
+
+                    if (currentEffect.type === InteractionType.SAY) {
+                        newEffects[effectIndex] = {
+                            ...currentEffect,
+                            spawnActorId: selectedId,
+                            target: currentTarget || currentEffect.target || 'SUBJECT'
+                        };
+                    } else if (currentEffect.type === InteractionType.DESTROY_OBJECT) {
                         newEffects[effectIndex] = {
                             ...currentEffect,
                             target: currentTarget || 'OBJECT',
                             spawnActorId: selectedId
                         };
-                    } else if (currentEffect.type === InteractionType.STEP) {
+                    } else if (currentEffect.type === InteractionType.STEP || currentEffect.type === InteractionType.SHOOT) {
                         newEffects[effectIndex] = {
                             ...currentEffect,
                             spawnActorId: selectedId
@@ -526,6 +555,24 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                 onChange={e => setNewVarInitial(Number(e.target.value))}
                                 className="w-full border-2 border-black rounded p-2 font-bold text-lg outline-none"
                             />
+                        </div>
+
+                        <div className="flex flex-col gap-2">
+                            <label className="font-bold text-xs uppercase text-gray-500">Scope</label>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => setNewVarScope('GLOBAL')}
+                                    className={`flex-1 py-2 border-2 rounded font-bold flex items-center justify-center gap-2 ${newVarScope === 'GLOBAL' ? 'bg-blue-100 border-blue-500 text-blue-700' : 'bg-white border-gray-300 text-gray-400'}`}
+                                >
+                                    <Globe size={16} /> GLOBAL
+                                </button>
+                                <button
+                                    onClick={() => setNewVarScope('SCENE')}
+                                    className={`flex-1 py-2 border-2 rounded font-bold flex items-center justify-center gap-2 ${newVarScope === 'SCENE' ? 'bg-orange-100 border-orange-500 text-orange-700' : 'bg-white border-gray-300 text-gray-400'}`}
+                                >
+                                    <MapPin size={16} /> SCENE
+                                </button>
+                            </div>
                         </div>
 
                         <div className="flex gap-3 mt-2">
@@ -751,7 +798,10 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                     <div draggable="true" onDragStart={(e) => e.dataTransfer.setData("type", "NOT_STICKER")} className="w-20 h-20 bg-white border-2 border-red-500 rounded-full flex items-center justify-center shadow-md cursor-grab hover:scale-110 transition-transform">
                         <Ban size={48} strokeWidth={3} className="text-red-500" />
                     </div>
-                    <div className="text-xs text-center text-gray-500">Drag on a "WHEN" icon to reverse it!</div>
+                    <div draggable="true" onDragStart={(e) => e.dataTransfer.setData("type", "DICE_STICKER")} className="w-20 h-20 bg-white border-2 border-purple-500 rounded-xl flex items-center justify-center shadow-md cursor-grab hover:scale-110 transition-transform mt-2">
+                        <div className="text-4xl">🎲</div>
+                    </div>
+                    <div className="text-xs text-center text-gray-500">Drag on a "WHEN" icon to modify it!</div>
                 </div>
 
                 <div className="w-full h-[2px] bg-black/10 my-2"></div>
@@ -760,8 +810,9 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                     <h3 className="font-bold text-lg text-blue-800 flex items-center gap-2"><Hash size={20} /> VARIABLES</h3>
 
                     {/* SCOPE FILTER LABEL */}
+                    {/* SCOPE FILTER LABEL */}
                     <div className="text-[10px] font-bold text-gray-400 uppercase">
-                        {viewScope === 'GLOBAL' ? 'Global Variables' : 'Scene Variables'}
+                        ALL VARIABLES
                     </div>
 
                     {/* VARIABLE LIST ITEMS */}
@@ -778,8 +829,8 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                         >
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2 overflow-hidden" onClick={() => openEditVariableModal(v)}>
-                                    <div className="w-6 h-6 shrink-0 bg-blue-100 rounded border border-blue-300 flex items-center justify-center text-blue-600 cursor-pointer">
-                                        <Edit3 size={12} />
+                                    <div className={`w-6 h-6 shrink-0 rounded border flex items-center justify-center cursor-pointer ${v.scope === 'GLOBAL' || !v.scope ? 'bg-blue-100 border-blue-300 text-blue-600' : 'bg-orange-100 border-orange-300 text-orange-600'}`}>
+                                        {v.scope === 'GLOBAL' || !v.scope ? <Globe size={12} /> : <MapPin size={12} />}
                                     </div>
                                     <span className="font-bold text-sm truncate cursor-pointer hover:underline" title={v.name}>{v.name}</span>
                                 </div>
@@ -975,7 +1026,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                                             {/* Target Selector */}
                                                             <div className="flex flex-col items-center scale-90">
                                                                 <button onClick={() => setSelectionModal({ ruleId: rule.id, effectIndex: idx, type: 'ACTOR', label: "WHO SPEAKS?", allowTargetSelection: true, currentTarget: effect.target || 'SUBJECT', subjectActorId: rule.subjectId, objectActorId: rule.objectId })} className="w-8 h-8 border border-black rounded bg-gray-100 overflow-hidden flex items-center justify-center hover:scale-110 transition-transform" title="Who speaks?">
-                                                                    {(effect.target === 'OBJECT' && !rule.objectId) ? <div className="text-[10px] font-bold">ANY</div> : (targetIcon ? <img src={getActorImage(targetIcon)} className="w-full h-full object-contain" /> : <span className="text-xs">?</span>)}
+                                                                    {effect.spawnActorId ? <img src={getActorImage(effect.spawnActorId)} className="w-full h-full object-contain" /> : (targetIcon ? <img src={getActorImage(targetIcon)} className="w-full h-full object-contain" /> : <span className="text-xs">?</span>)}
                                                                 </button>
                                                             </div>
 
@@ -989,6 +1040,34 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                                             </button>
                                                         </div>
                                                         <div className="text-[10px] bg-yellow-200 px-2 rounded-full max-w-[70px] truncate mt-1">{effect.text || '...'}</div>
+                                                    </div>
+                                                    <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center hover:scale-110 z-10"><X size={14} /></button>
+                                                </div>
+                                            );
+                                        }
+
+                                        // SHOOT (Projectile)
+                                        if (effect.type === InteractionType.SHOOT) {
+                                            return (
+                                                <div key={idx} className="relative group shrink-0">
+                                                    <div className="flex flex-col items-center bg-red-100 border-2 border-red-500 rounded-lg p-2 shadow-sm h-[90px] min-w-[80px] justify-center gap-1">
+                                                        <span className="text-[10px] font-bold text-red-700 uppercase">SHOOT</span>
+                                                        <button onClick={() => setSelectionModal({ ruleId: rule.id, effectIndex: idx, type: 'ACTOR', label: "SHOOT WHAT?", allowTargetSelection: false })} className="w-10 h-10 border border-black rounded bg-white overflow-hidden flex items-center justify-center hover:scale-110 transition-transform">
+                                                            {effect.spawnActorId ? <img src={getActorImage(effect.spawnActorId)} className="w-full h-full object-contain" /> : <span className="text-xs">?</span>}
+                                                        </button>
+                                                    </div>
+                                                    <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center hover:scale-110 z-10"><X size={14} /></button>
+                                                </div>
+                                            );
+                                        }
+
+                                        // PARTICLES (Confetti)
+                                        if (effect.type === InteractionType.PARTICLES) {
+                                            return (
+                                                <div key={idx} className="relative group shrink-0">
+                                                    <div className="flex flex-col items-center bg-purple-100 border-2 border-purple-500 rounded-lg p-2 shadow-sm h-[90px] min-w-[80px] justify-center gap-1">
+                                                        <span className="text-[10px] font-bold text-purple-700 uppercase">CONFETTI</span>
+                                                        <div className="text-2xl">✨</div>
                                                     </div>
                                                     <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center hover:scale-110 z-10"><X size={14} /></button>
                                                 </div>

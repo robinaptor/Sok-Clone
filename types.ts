@@ -50,6 +50,8 @@ export enum InteractionType {
   PLAY_ANIM = 'PLAY_ANIM', // New: visual effect
   MODIFY_VAR = 'MODIFY_VAR', // NEW: Change variable value
   SAY = 'SAY', // NEW: Dialogue bubble
+  SHOOT = 'SHOOT', // NEW: Projectile
+  PARTICLES = 'PARTICLES', // NEW: Visual effect
   NOTHING = 'NOTHING',
   THEN = 'THEN' // Sequence / Delay modifier
 }
@@ -90,6 +92,7 @@ export interface Rule {
 
   effects: RuleEffect[]; // MULTIPLE effects
   invert?: boolean; // The "NOT" logic
+  chance?: number; // NEW: 0-1 probability (0.5 = 50%)
   soundId?: string; // NEW: Audio to play when triggered
 }
 

@@ -235,14 +235,31 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
         const scene = gameData.scenes.find(s => s.id === sceneId) || gameData.scenes[0];
         setObjects(scene.objects.map(o => ({ ...o, activeAnimation: undefined })));
 
-        // Reset Variables
-        const initialVars: Record<string, number> = {};
-        if (gameData.variables) {
-            gameData.variables.forEach(v => {
-                initialVars[v.id] = v.initialValue;
-            });
-        }
-        setRuntimeVariables(initialVars);
+        // Reset Variables (Preserve Globals)
+        setRuntimeVariables(prev => {
+            const nextVars = { ...prev };
+            if (gameData.variables) {
+                gameData.variables.forEach(v => {
+                    // If it's a GLOBAL variable, only set it if it doesn't exist yet (first load)
+                    // If it's a SCENE variable (scoped to this scene), reset it
+                    // If it's a SCENE variable (scoped to ANOTHER scene), leave it alone (or reset? doesn't matter much if not visible)
+
+                    const isGlobal = v.scope === 'GLOBAL' || !v.scope;
+                    const isCurrentScene = v.scope === sceneId;
+
+                    if (isGlobal) {
+                        if (nextVars[v.id] === undefined) {
+                            nextVars[v.id] = v.initialValue;
+                        }
+                        // If it exists, KEEP IT!
+                    } else if (isCurrentScene) {
+                        // Always reset local variables for the new scene
+                        nextVars[v.id] = v.initialValue;
+                    }
+                });
+            }
+            return nextVars;
+        });
         setActiveBubbles({}); // Clear bubbles
 
         setStatus(prev => (prev === 'LOADING' || prev === 'READY') ? prev : 'PLAYING');
@@ -376,6 +393,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
             if (effect.spawnActorId && (
                 (effect.target === 'OBJECT' && !objectObjId) ||
                 (effect.type === InteractionType.SPAWN) ||
+                (effect.type === InteractionType.SAY) ||
                 (effect.type === InteractionType.SWAP && effect.target === 'OBJECT' && !objectObjId)
             )) {
                 if (effect.type !== InteractionType.SPAWN) {
@@ -627,24 +645,28 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
             if (!direction) return;
 
             const activeRules = getActiveRules();
-            const keyRules = activeRules.filter(r => r.trigger === RuleTrigger.KEY_PRESS && r.key === direction);
+            const keyRules = activeRules.filter(r => r.trigger === RuleTrigger.KEY_PRESS);
 
             keyRules.forEach(rule => {
-                // Find all subjects for this rule
-                const subjects = objectsRef.current.filter(o => o.actorId === rule.subjectId);
-                subjects.forEach(subj => {
-                    if (!executingRuleIds.current.has(rule.id)) {
-                        // We don't block keys with executingRuleIds usually, or maybe we do to prevent spam?
-                        // Let's allow spamming for smooth movement, but maybe debounce slightly?
-                        // Actually, for movement, we want it responsive.
-                        if (rule.soundId) playSound(rule.soundId);
-                        executeRuleEffects(rule.id, rule.effects, subj.id, null);
-                    }
-                });
+                const isMatch = rule.key === direction;
+                // Normal: Match AND Not Invert
+                // Invert: Not Match AND Invert
+                const shouldRun = (isMatch && !rule.invert) || (!isMatch && rule.invert);
 
-                // If no subject (Global rule?), just execute once
-                if (!rule.subjectId) {
-                    executeRuleEffects(rule.id, rule.effects, 'GLOBAL', null);
+                if (shouldRun) {
+                    // Find all subjects for this rule
+                    const subjects = objectsRef.current.filter(o => o.actorId === rule.subjectId);
+                    subjects.forEach(subj => {
+                        if (!executingRuleIds.current.has(rule.id)) {
+                            if (rule.soundId) playSound(rule.soundId);
+                            executeRuleEffects(rule.id, rule.effects, subj.id, null);
+                        }
+                    });
+
+                    // If no subject (Global rule?), just execute once
+                    if (!rule.subjectId) {
+                        executeRuleEffects(rule.id, rule.effects, 'GLOBAL', null);
+                    }
                 }
             });
         };
@@ -674,16 +696,41 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
         if (audioContextRef.current?.state === 'suspended') audioContextRef.current.resume();
 
         const activeRules = getActiveRules();
-        const clickRules = activeRules.filter(r => r.trigger === RuleTrigger.CLICK && r.subjectId === obj.actorId);
+        const clickRules = activeRules.filter(r => r.trigger === RuleTrigger.CLICK);
 
         let ruleTriggered = false;
+
+        // 1. Trigger Normal Click Rules for THIS object
+        // 2. Trigger Inverted Click Rules for ALL OTHER objects
+
         for (const rule of clickRules) {
             if (executingRuleIds.current.has(rule.id)) continue;
-            ruleTriggered = true;
-            executingRuleIds.current.add(rule.id);
-            if (rule.soundId) playSound(rule.soundId);
-            await executeRuleEffects(rule.id, rule.effects, obj.id, null);
-            executingRuleIds.current.delete(rule.id);
+
+            let shouldRun = false;
+            let targetObjId = obj.id;
+
+            if (rule.subjectId === obj.actorId && !rule.invert) {
+                // Normal Click on this object
+                shouldRun = true;
+                ruleTriggered = true;
+            } else if (rule.subjectId !== obj.actorId && rule.invert) {
+                // Inverted Click: We clicked 'obj', but the rule is for 'rule.subjectId'
+                // So we should trigger this rule for all instances of 'rule.subjectId'
+                // Wait, we need to iterate over all instances of rule.subjectId
+                const subjects = objectsRef.current.filter(o => o.actorId === rule.subjectId);
+                subjects.forEach(subj => {
+                    if (rule.soundId) playSound(rule.soundId);
+                    executeRuleEffects(rule.id, rule.effects, subj.id, null);
+                });
+                continue; // Handled separately
+            }
+
+            if (shouldRun) {
+                executingRuleIds.current.add(rule.id);
+                if (rule.soundId) playSound(rule.soundId);
+                await executeRuleEffects(rule.id, rule.effects, targetObjId, null);
+                executingRuleIds.current.delete(rule.id);
+            }
         }
 
         if (ruleTriggered) return;
@@ -746,6 +793,18 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                 );
                 if (!isStillClose && activeCollisions.current.has(pairKey)) {
                     activeCollisions.current.delete(pairKey);
+
+                    // TRIGGER "EXIT COLLISION" (Inverted Rules)
+                    const activeRules = getActiveRules();
+                    const rules = activeRules.filter(r =>
+                        r.trigger === RuleTrigger.COLLISION && r.subjectId === movingObj.actorId && r.objectId === other.actorId && r.invert
+                    );
+                    for (const rule of rules) {
+                        if (!executingRuleIds.current.has(rule.id)) {
+                            if (rule.soundId) playSound(rule.soundId);
+                            executeRuleEffects(rule.id, rule.effects, movingObj.id, other.id);
+                        }
+                    }
                 }
             }
         }
