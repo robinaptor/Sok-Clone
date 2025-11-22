@@ -43,8 +43,8 @@ export const INITIAL_GAME_DATA: GameData = {
 };
 
 export const INTERACTION_LABELS: Record<InteractionType, string> = {
-  [InteractionType.BLOCK]: 'Stops',
-  [InteractionType.PUSH]: 'Pushes',
+  [InteractionType.STEP]: 'Steps',
+  [InteractionType.SHAKE]: 'Shakes',
   [InteractionType.DESTROY_OBJECT]: 'Eats',
   [InteractionType.DESTROY_SUBJECT]: 'Dies by',
   [InteractionType.WIN]: 'Wins',
@@ -60,6 +60,7 @@ export const INTERACTION_LABELS: Record<InteractionType, string> = {
 
 // NEW: Magnet Definitions categorized
 export const TRIGGER_MAGNETS = [
+    { type: RuleTrigger.KEY_PRESS, label: 'KEY', color: '#fcd34d', icon: 'keyboard' }, // Yellow (NEW)
     { type: RuleTrigger.COLLISION, label: 'TOUCH', color: '#fcd34d', icon: 'eye' }, // Yellow
     { type: RuleTrigger.CLICK, label: 'CLICK', color: '#fcd34d', icon: 'hand' }, // Yellow
     { type: RuleTrigger.START, label: 'START', color: '#86efac', icon: 'flag' }, // Green
@@ -68,8 +69,9 @@ export const TRIGGER_MAGNETS = [
 ];
 
 export const EFFECT_MAGNETS = [
-    { type: InteractionType.BLOCK, label: 'BLOCK', color: '#60a5fa', icon: 'square' }, // Blue
-    { type: InteractionType.PUSH, label: 'PUSH', color: '#4ade80', icon: 'arrow-right' }, // Green
+    { type: InteractionType.STEP, label: 'STEP', color: '#4ade80', icon: 'footprints' }, // Green (Replaces Move)
+    { type: InteractionType.SHAKE, label: 'SHAKE', color: '#f87171', icon: 'activity' }, // Red (Visual Juice)
+    
     { type: InteractionType.DESTROY_OBJECT, label: 'EAT', color: '#ef4444', icon: 'utensils' }, // Red
     { type: InteractionType.DESTROY_SUBJECT, label: 'DIE', color: '#ef4444', icon: 'skull' }, // Red
     

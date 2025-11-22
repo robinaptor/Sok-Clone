@@ -32,12 +32,15 @@ export enum RuleTrigger {
   CLICK = 'CLICK',
   START = 'START', // Triggered when scene loads
   TIMER = 'TIMER',  // Triggered periodically
-  VAR_CHECK = 'VAR_CHECK' // NEW: Triggered when variable meets condition
+  VAR_CHECK = 'VAR_CHECK', // Triggered when variable meets condition
+  KEY_PRESS = 'KEY_PRESS' // NEW: Keyboard control
 }
 
 export enum InteractionType {
-  BLOCK = 'BLOCK',
-  PUSH = 'PUSH',
+  STEP = 'STEP', // NEW: Replaces PUSH/BLOCK - Move in direction
+  PUSH = 'PUSH', // Legacy / Strong Push
+  BLOCK = 'BLOCK', // Legacy / Solid
+  SHAKE = 'SHAKE', // NEW: Screen Shake effect
   DESTROY_OBJECT = 'DESTROY_OBJECT', // Eat
   DESTROY_SUBJECT = 'DESTROY_SUBJECT', // Die
   WIN = 'WIN',
@@ -78,7 +81,13 @@ export interface Rule {
   variableId?: string;
   condition?: 'EQUALS' | 'GREATER' | 'LESS';
   threshold?: number;
-  
+
+  // For TIMER Trigger
+  interval?: number; // NEW: Custom interval in seconds
+
+  // For KEY TRIGGER
+  key?: 'UP' | 'DOWN' | 'LEFT' | 'RIGHT';
+
   effects: RuleEffect[]; // MULTIPLE effects
   invert?: boolean; // The "NOT" logic
   soundId?: string; // NEW: Audio to play when triggered
