@@ -344,6 +344,7 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
                                 ? 'bg-[#ffcc80] w-14 hover:w-14'
                                 : 'bg-white hover:bg-gray-50 text-gray-400 hover:text-gray-600'} 
                 `}
+                        data-help={`Switch to Scene ${index + 1}`}
                     >
                         {index + 1}
                     </button>
@@ -351,6 +352,7 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
                 <button
                     onClick={onAddScene}
                     className="w-12 h-12 bg-white border-2 border-black flex items-center justify-center font-bold text-2xl rounded-l-lg shadow-sm cursor-pointer hover:bg-green-50 text-gray-400 hover:text-green-500 ml-2"
+                    data-help="Create a new Scene (level)"
                 >
                     +
                 </button>
@@ -362,12 +364,12 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
                 {/* HEADER */}
                 <div className="h-16 flex items-center justify-center relative z-20 -mb-4 pointer-events-none">
                     <div className="pointer-events-auto flex items-center" onClick={e => e.stopPropagation()}>
-                        <div className="w-16 h-16 rounded-full bg-white border-[3px] border-black overflow-hidden relative z-10 shadow-md">
+                        <div className="w-16 h-16 rounded-full bg-white border-[3px] border-black overflow-hidden relative z-10 shadow-md" data-help="The Hero of your game!">
                             {gameData.actors[0] && (
                                 <img src={gameData.actors[0].imageData} className="w-full h-full object-contain p-1" alt="Hero" />
                             )}
                         </div>
-                        <div className="sketch-box h-12 px-4 flex items-center bg-white -ml-4 pl-6 min-w-[200px]">
+                        <div className="sketch-box h-12 px-4 flex items-center bg-white -ml-4 pl-6 min-w-[200px]" data-help="Click to rename your game">
                             <input
                                 value={gameData.title}
                                 onChange={(e) => onChangeTitle(e.target.value)}
@@ -398,6 +400,7 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
                             onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); e.currentTarget.classList.add('scale-125'); }}
                             onDragLeave={(e) => { e.stopPropagation(); e.currentTarget.classList.remove('scale-125'); }}
                             onDrop={(e) => { e.stopPropagation(); e.currentTarget.classList.remove('scale-125'); handleTrashDrop(e); }}
+                            data-help="Drag items here to delete them from the scene"
                         >
                             <X size={64} strokeWidth={4} className="text-red-500 drop-shadow-md cursor-pointer hover:scale-110 transition-transform" />
                         </div>
@@ -454,6 +457,7 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
                                                 borderRadius: 8,
                                                 fontFamily: 'monospace'
                                             }}
+                                            data-help="This is a HUD element showing a variable."
                                         >
                                             {obj.variableMonitor.mode === 'TEXT' ? (
                                                 <div className="text-center text-lg whitespace-nowrap">{name}: 0</div>
@@ -513,6 +517,7 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
                                             width: ACTOR_SIZE * objScale,
                                             height: ACTOR_SIZE * objScale
                                         }}
+                                        data-help={`Object: ${actor.name}. Drag to move, click to select.`}
                                     >
                                         <img
                                             src={actor.imageData}
@@ -534,6 +539,7 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
                                                         resizeStartRef.current = { x: e.clientX, startScale: objScale };
                                                     }}
                                                     draggable={false}
+                                                    data-help="Drag to resize this object"
                                                 >
                                                     <Maximize size={12} className="text-white" />
                                                 </div>
@@ -556,17 +562,17 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
             {/* RIGHT SIDEBAR (Tools) */}
             <div className="w-24 flex flex-col items-center pt-8 gap-6 pr-4 z-10" onClick={e => e.stopPropagation()}>
 
-                <button onClick={onPlay} className="hover:scale-110 transition-transform" title="Play Game">
+                <button onClick={onPlay} className="hover:scale-110 transition-transform" title="Play Game" data-help="Play your game!">
                     <Play size={50} className="text-[#d4e157] fill-[#d4e157] drop-shadow-md stroke-black stroke-[2]" />
                 </button>
 
-                <button onClick={onSave} className="hover:scale-110 transition-transform" title="Save Game">
+                <button onClick={onSave} className="hover:scale-110 transition-transform" title="Save Game" data-help="Save your progress">
                     <div className="bg-[#5c6bc0] p-2 rounded-md border-2 border-black shadow-md">
                         <Save size={32} className="text-white" />
                     </div>
                 </button>
 
-                <button onClick={onOpenRules} className="hover:scale-110 transition-transform" title="Open Rules">
+                <button onClick={onOpenRules} className="hover:scale-110 transition-transform" title="Open Rules" data-help="Open the Rule Editor to add logic">
                     <div className="bg-[#8d6e63] w-12 h-14 rounded-r-md border-2 border-black border-l-4 flex items-center justify-center shadow-md relative">
                         <div className="absolute left-1 top-2 w-6 h-1 bg-[#a1887f] border border-black/30"></div>
                         <Book size={24} className="text-white/80" />
@@ -582,7 +588,7 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
                         <span className="text-[10px] font-bold text-blue-500 uppercase">SELECTED</span>
 
                         {/* SCALE SLIDER */}
-                        <div className="flex flex-col items-center w-full px-1">
+                        <div className="flex flex-col items-center w-full px-1" data-help="Change the size of the selected object">
                             <Maximize size={16} className="text-gray-400 mb-1" />
                             <input
                                 type="range" min="0.2" max="3.0" step="0.1"
@@ -598,6 +604,7 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
                             onClick={() => toggleObjectLock(selectedInstance.id)}
                             className={`p-2 rounded-full border-2 border-black shadow-sm transition-all ${selectedInstance.isLocked ? 'bg-red-100 text-red-500' : 'bg-white hover:bg-gray-100'}`}
                             title="Lock Position"
+                            data-help="Lock this object so it can't be moved accidentally"
                         >
                             {selectedInstance.isLocked ? <Lock size={20} /> : <Unlock size={20} />}
                         </button>
@@ -629,6 +636,7 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
                                         } : o));
                                     }}
                                     className="w-full py-1 bg-blue-500 text-white text-xs font-bold rounded hover:bg-blue-600"
+                                    data-help="Attach a variable display (HUD) to this object"
                                 >
                                     ATTACH VARIABLE
                                 </button>
@@ -641,6 +649,7 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
                                     <button
                                         onClick={() => setHudConfigModal(selectedInstance.id)}
                                         className="w-full py-2 bg-white border-2 border-black shadow-[2px_2px_0px_rgba(0,0,0,0.2)] text-xs font-bold rounded hover:bg-gray-50 flex items-center justify-center gap-2"
+                                        data-help="Configure how the variable is displayed"
                                     >
                                         <Settings size={14} />
                                         CONFIGURE HUD
@@ -661,6 +670,7 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
                             onClick={deleteSelectedObject}
                             className="p-2 rounded-full border-2 border-black bg-white text-red-500 shadow-sm hover:bg-red-50 transition-all mt-2"
                             title="Delete Object"
+                            data-help="Delete this object"
                         >
                             <Trash2 size={20} />
                         </button>
@@ -670,11 +680,11 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
                     <div className="flex flex-col gap-2 items-center animate-in slide-in-from-right">
                         <span className="text-[10px] font-bold text-gray-400">STAGE</span>
 
-                        <button onClick={onEditBackground} className="sketch-btn w-10 h-10 bg-white hover:bg-purple-50" title="Draw Background">
+                        <button onClick={onEditBackground} className="sketch-btn w-10 h-10 bg-white hover:bg-purple-50" title="Draw Background" data-help="Draw a background for this scene">
                             <Paintbrush size={20} className="text-purple-500" />
                         </button>
 
-                        <label className="sketch-btn w-10 h-10 bg-white hover:bg-blue-50 cursor-pointer" title="Upload Background">
+                        <label className="sketch-btn w-10 h-10 bg-white hover:bg-blue-50 cursor-pointer" title="Upload Background" data-help="Upload an image as background">
                             <Upload size={20} className="text-blue-500" />
                             <input type="file" accept="image/*" className="hidden" onChange={handleBackgroundUpload} />
                         </label>
@@ -691,6 +701,7 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
                             onClick={() => setIsLockMode(!isLockMode)}
                             className={`hover:scale-110 transition-transform ${isLockMode ? 'opacity-100' : 'opacity-50'}`}
                             title="Auto-Lock new items"
+                            data-help="Toggle Auto-Lock: New items will be locked in place"
                         >
                             {isLockMode ? <Lock size={32} /> : <Unlock size={32} />}
                         </button>

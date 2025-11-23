@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { GameData, Rule, InteractionType, RuleTrigger, Sound, GlobalVariable, RuleEffect } from '../types';
 import { TRIGGER_MAGNETS, EFFECT_MAGNETS, SCENE_WIDTH, SCENE_HEIGHT } from '../constants';
-import { X, Plus, Play, Save, Edit2, Edit3, Trash2, Eye, Hand, Flag, Clock, Square, Utensils, ArrowRight, Trophy, DoorOpen, Skull, Zap, Ban, Timer, Sparkles, RefreshCw, Clapperboard, Hash, PlusCircle, MessageCircle, MessageSquare, Keyboard, Footprints, Activity, Crosshair, Target, ArrowDownCircle, Hourglass, Puzzle, Globe, MapPin, Volume2, VolumeX, Mic, Upload, Download, Info, HelpCircle, Settings, Repeat, ChevronsRight, Dices, RotateCw, ArrowDown, Calculator, Map } from 'lucide-react';
+import { X, Plus, Play, Save, Edit2, Edit3, Trash2, Eye, Hand, Flag, Clock, Square, Utensils, ArrowRight, Trophy, DoorOpen, Skull, Zap, Ban, Timer, Sparkles, RefreshCw, Clapperboard, Hash, PlusCircle, MessageCircle, MessageSquare, Keyboard, Footprints, Activity, Crosshair, Target, ArrowDownCircle, Hourglass, Puzzle, Globe, MapPin, Volume2, VolumeX, Mic, Upload, Download, Info, HelpCircle, Settings, Repeat, ChevronsRight, Dices, RotateCw, ArrowDown, Calculator, Map, Gamepad2, Ghost, Coins, AlertTriangle } from 'lucide-react';
 import { SoundRecorder } from './SoundRecorder';
 
 interface RuleEditorProps {
@@ -15,6 +15,78 @@ interface RuleEditorProps {
 export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules, onUpdateSounds, onUpdateVariables, currentSceneId }) => {
     const [isDraggingOverBoard, setIsDraggingOverBoard] = useState(false);
     const [viewScope, setViewScope] = useState<'GLOBAL' | 'LOCAL'>('GLOBAL');
+    const [sidebarTab, setSidebarTab] = useState<'BLOCKS' | 'BEHAVIORS'>('BLOCKS');
+
+    // BEHAVIORS PRESETS
+    const BEHAVIORS = [
+        {
+            id: 'platformer_controls',
+            label: 'Platformer Controls',
+            icon: <Gamepad2 size={24} className="text-purple-600" />,
+            description: 'Move Left/Right & Jump',
+            rules: [
+                { trigger: 'KEY_PRESS', key: 'RIGHT', effects: [{ type: 'PUSH', direction: 'RIGHT', force: 1 }] },
+                { trigger: 'KEY_PRESS', key: 'LEFT', effects: [{ type: 'PUSH', direction: 'LEFT', force: 1 }] },
+                { trigger: 'KEY_PRESS', key: 'SPACE', effects: [{ type: 'JUMP', force: 12 }] },
+            ]
+        },
+        {
+            id: 'topdown_move',
+            label: 'Top-Down Move',
+            icon: <Map size={24} className="text-blue-600" />,
+            description: 'Move in 4 directions',
+            rules: [
+                { trigger: 'KEY_PRESS', key: 'UP', effects: [{ type: 'PUSH', direction: 'UP', force: 1 }] },
+                { trigger: 'KEY_PRESS', key: 'DOWN', effects: [{ type: 'PUSH', direction: 'DOWN', force: 1 }] },
+                { trigger: 'KEY_PRESS', key: 'LEFT', effects: [{ type: 'PUSH', direction: 'LEFT', force: 1 }] },
+                { trigger: 'KEY_PRESS', key: 'RIGHT', effects: [{ type: 'PUSH', direction: 'RIGHT', force: 1 }] },
+            ]
+        },
+        {
+            id: 'collectable',
+            label: 'Collectable Item',
+            icon: <Coins size={24} className="text-yellow-600" />,
+            description: 'Touch -> Destroy + Score',
+            rules: [
+                {
+                    trigger: 'COLLISION',
+                    effects: [
+                        { type: 'DESTROY_OBJECT', target: 'SUBJECT' }, // Self destroy
+                        { type: 'MODIFY_VAR', operation: 'ADD', value: 1 } // Add to score (needs var selection)
+                    ]
+                }
+            ]
+        },
+        {
+            id: 'enemy_chase',
+            label: 'Enemy Chaser',
+            icon: <Ghost size={24} className="text-red-600" />,
+            description: 'Follows the player',
+            rules: [
+                {
+                    trigger: 'TIMER',
+                    interval: 0.5,
+                    effects: [{ type: 'CHASE' }]
+                },
+                {
+                    trigger: 'COLLISION',
+                    effects: [{ type: 'SAY', text: 'Gotcha!' }]
+                }
+            ]
+        },
+        {
+            id: 'hazard',
+            label: 'Deadly Hazard',
+            icon: <AlertTriangle size={24} className="text-orange-600" />,
+            description: 'Touch -> Restart Level',
+            rules: [
+                {
+                    trigger: 'COLLISION',
+                    effects: [{ type: 'CHANGE_SCENE', targetSceneId: 'RESTART' }] // Special ID for restart? Or just let user pick.
+                }
+            ]
+        }
+    ];
 
     // State for Position Picker Modal (Only for SPAWN)
     const [pickingLocationFor, setPickingLocationFor] = useState<{ ruleId: string, effectIndex: number } | null>(null);
@@ -275,6 +347,37 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
             setVarConfigOp('EQUALS');
             setVarConfigVariableId(varId);
             setVariableModal({ ruleId: newRule.id, type: 'TRIGGER', variableId: varId });
+        }
+        // DRAGGING A BEHAVIOR
+        else if (type === "NEW_BEHAVIOR") {
+            const behaviorId = e.dataTransfer.getData("behaviorId");
+            const behavior = BEHAVIORS.find(b => b.id === behaviorId);
+
+            if (behavior) {
+                const newRules = behavior.rules.map(t => {
+                    const template = t as any;
+                    // Map template to actual Rule object
+                    const rule: Rule = {
+                        id: Math.random().toString(36).substr(2, 9),
+                        scope: activeScopeId,
+                        trigger: template.trigger as RuleTrigger,
+                        subjectId: '',
+                        objectId: '',
+                        effects: template.effects.map((eff: any) => ({
+                            ...eff,
+                            type: eff.type as InteractionType
+                        })) as RuleEffect[]
+                    };
+
+                    // Special handling for specific templates
+                    if (template.key) rule.key = template.key;
+                    if (template.interval) rule.interval = template.interval;
+
+                    return rule;
+                });
+
+                onUpdateRules([...gameData.rules, ...newRules]);
+            }
         }
     };
 
@@ -616,6 +719,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
             const op = rule.condition === 'EQUALS' ? '=' : rule.condition === 'GREATER' ? '>' : '<';
             return `${name} ${op} ${rule.threshold}`;
         }
+        if (rule.trigger === RuleTrigger.KEY_PRESS) return "IS PRESSED";
         return "IS CLICKED";
     };
 
@@ -1329,84 +1433,109 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                         </button>
                     </div>
                 </div>
-            )
-            }
+            )}
             {/* --- LEFT SIDEBAR: TRIGGERS & VARIABLES --- */}
-            <div className="w-44 bg-yellow-100 border-[3px] border-black/10 p-4 flex flex-col gap-6 items-center shadow-inner rounded-l-lg overflow-y-auto shrink-0">
-                <div className="w-full flex flex-col items-center gap-4">
-                    <h3 className="font-bold text-xl text-yellow-800 flex items-center gap-2"><Puzzle size={20} /> STARTERS</h3>
-                    {TRIGGER_MAGNETS.map((mag) => (
-                        <div
-                            key={mag.type}
-                            draggable="true"
-                            onDragStart={(e) => {
-                                e.dataTransfer.setData("type", "NEW_TRIGGER_MAGNET");
-                                e.dataTransfer.setData("trigger", mag.type);
-                            }}
-                            className="w-full bg-white border-2 border-yellow-500 rounded-lg p-2 shadow-md cursor-grab active:cursor-grabbing hover:scale-105 transition-transform flex flex-col items-center gap-1"
-                        >
-                            <div className="font-bold text-sm">WHEN...</div>
-                            <div className="w-10 h-10 rounded flex items-center justify-center text-black border border-black" style={{ backgroundColor: mag.color }}>
-                                {getIcon(mag.icon)}
-                            </div>
-                            <span className="font-bold text-md text-center leading-none">{mag.label}</span>
-                        </div>
-                    ))}
-                    <div className="w-full h-[2px] bg-black/10 my-2"></div>
-                </div>
+            <div className="w-44 bg-yellow-100 border-[3px] border-black/10 p-0 flex flex-col shadow-inner rounded-l-lg overflow-hidden shrink-0">
 
-                <div className="w-full flex flex-col items-center gap-4">
-                    <h3 className="font-bold text-lg text-red-800 flex items-center gap-2">MODIFIERS</h3>
-                    <div draggable="true" onDragStart={(e) => e.dataTransfer.setData("type", "NOT_STICKER")} className="w-20 h-20 bg-white border-2 border-red-500 rounded-full flex items-center justify-center shadow-md cursor-grab hover:scale-110 transition-transform">
-                        <Ban size={48} strokeWidth={3} className="text-red-500" />
-                    </div>
-                    <div draggable="true" onDragStart={(e) => e.dataTransfer.setData("type", "DICE_STICKER")} className="w-20 h-20 bg-white border-2 border-purple-500 rounded-xl flex items-center justify-center shadow-md cursor-grab hover:scale-110 transition-transform mt-2">
-                        <Dices size={48} strokeWidth={3} className="text-purple-500" />
-                    </div>
-                    <div className="text-xs text-center text-gray-500">Drag on a "WHEN" icon to modify it!</div>
-                    <div className="w-full h-[2px] bg-black/10 my-2"></div>
-                </div>
-
-                <div className="w-full flex flex-col items-center gap-2">
-                    <h3 className="font-bold text-lg text-blue-800 flex items-center gap-2"><Hash size={20} /> VARIABLES</h3>
-                    <div className="text-[10px] font-bold text-gray-400 uppercase">ALL VARIABLES</div>
-                    {visibleVariables.map(v => (
-                        <div
-                            key={v.id}
-                            draggable="true"
-                            onDragStart={(e) => {
-                                e.dataTransfer.setData("type", "VARIABLE");
-                                e.dataTransfer.setData("variableId", v.id);
-                                e.dataTransfer.effectAllowed = "copy";
-                            }}
-                            className="w-full bg-white border-2 border-blue-400 rounded-lg p-2 shadow-sm relative group cursor-grab active:cursor-grabbing hover:bg-blue-50 transition-colors"
-                        >
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2 overflow-hidden" onClick={() => openEditVariableModal(v)}>
-                                    <div className={`w-6 h-6 shrink-0 rounded border flex items-center justify-center cursor-pointer ${v.scope === 'GLOBAL' || !v.scope ? 'bg-blue-100 border-blue-300 text-blue-600' : 'bg-orange-100 border-orange-300 text-orange-600'}`}>
-                                        {v.scope === 'GLOBAL' || !v.scope ? <Globe size={12} /> : <MapPin size={12} />}
-                                    </div>
-                                    <span className="font-bold text-sm truncate cursor-pointer hover:underline" title={v.name}>{v.name}</span>
-                                </div>
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); handleDeleteVariable(v.id); }}
-                                    className="text-red-300 hover:text-red-600 shrink-0"
-                                    title="Delete Variable"
-                                >
-                                    <Trash2 size={14} />
-                                </button>
-                            </div>
-                            <div className="text-[8px] text-gray-400 text-center mt-1">Initial: {v.initialValue}</div>
-                        </div>
-                    ))}
-                    <button onClick={openNewVariableModal} className="w-full py-2 bg-blue-100 border-2 border-blue-500 border-dashed rounded-lg flex items-center justify-center gap-1 hover:bg-blue-200 font-bold text-blue-600 text-sm">
-                        <Plus size={16} /> NEW
+                {/* SIDEBAR TABS */}
+                <div className="flex w-full border-b-2 border-black/10">
+                    <button
+                        onClick={() => setSidebarTab('BLOCKS')}
+                        className={`flex-1 py-2 font-bold text-xs flex items-center justify-center gap-1 ${sidebarTab === 'BLOCKS' ? 'bg-yellow-100 text-black' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}
+                        data-help="Basic triggers like 'When Clicked' or 'When Game Starts'"
+                    >
+                        <Puzzle size={16} /> BLOCKS
+                    </button>
+                    <button
+                        onClick={() => setSidebarTab('BEHAVIORS')}
+                        className={`flex-1 py-2 font-bold text-xs flex items-center justify-center gap-1 ${sidebarTab === 'BEHAVIORS' ? 'bg-yellow-100 text-black' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}
+                        data-help="Pre-made behaviors like 'Platformer Controls' or 'Top-Down Movement'"
+                    >
+                        <Sparkles size={16} /> QUICK
                     </button>
                 </div>
-            </div>
+
+                <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-6 items-center">
+                    {sidebarTab === 'BLOCKS' ? (
+                        <>
+                            <div className="w-full flex flex-col items-center gap-4 animate-in slide-in-from-left-4 fade-in duration-200">
+                                <h3 className="font-bold text-lg text-yellow-800 flex items-center gap-2">TRIGGERS <Zap size={20} /></h3>
+                                {TRIGGER_MAGNETS.map((mag) => (
+                                    <div
+                                        key={mag.type}
+                                        draggable="true"
+                                        onDragStart={(e) => { e.dataTransfer.setData("type", "NEW_TRIGGER_MAGNET"); e.dataTransfer.setData("trigger", mag.type); }}
+                                        className="w-full bg-white border-2 border-yellow-500 rounded-lg p-2 shadow-md cursor-grab active:cursor-grabbing hover:scale-105 transition-transform flex flex-col items-center gap-1 group"
+                                        data-help={`Drag this to start a new rule: ${mag.label}`}
+                                    >
+                                        <div className="font-bold text-sm text-yellow-600">WHEN...</div>
+                                        <div className="w-10 h-10 rounded flex items-center justify-center text-white border border-black shadow-sm" style={{ backgroundColor: mag.color }}>{getIcon(mag.icon)}</div>
+                                        <span className="font-bold text-md text-center leading-none">{mag.label}</span>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="w-full flex flex-col items-center gap-4 mt-8 animate-in slide-in-from-left-4 fade-in duration-200 delay-100">
+                                <h3 className="font-bold text-lg text-blue-800 flex items-center gap-2">VARIABLES <Hash size={20} /></h3>
+                                {gameData.variables.map((v) => (
+                                    <div key={v.id} className="w-full bg-white border-2 border-blue-400 rounded-lg p-2 shadow-sm flex flex-col gap-1">
+                                        <div className="flex items-center justify-between">
+                                            <div className="font-bold text-blue-700 text-sm flex items-center gap-1">
+                                                <Hash size={12} /> {v.name}
+                                            </div>
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); handleDeleteVariable(v.id); }}
+                                                className="text-red-300 hover:text-red-600 shrink-0"
+                                                title="Delete Variable"
+                                            >
+                                                <Trash2 size={14} />
+                                            </button>
+                                        </div>
+                                        <div className="text-[10px] text-gray-400 text-center mt-1">Initial: {v.initialValue}</div>
+                                    </div>
+                                ))}
+                                <button
+                                    onClick={openNewVariableModal}
+                                    className="w-full py-2 bg-blue-100 border-2 border-blue-500 border-dashed rounded-lg flex items-center justify-center gap-1 hover:bg-blue-200 font-bold text-blue-600 text-sm"
+                                    data-help="Create a new variable to track numbers (score, health, etc.)"
+                                >
+                                    <Plus size={16} /> NEW
+                                </button>
+                            </div>
+
+                        </>
+                    ) : (
+                        <div className="w-full flex flex-col items-center gap-4 animate-in slide-in-from-left-4 fade-in duration-200">
+                            <h3 className="font-bold text-lg text-purple-800 flex items-center gap-2 text-center leading-tight">✨ QUICK BEHAVIORS</h3>
+                            <div className="text-[10px] text-center text-gray-500 mb-2">Drag these to add multiple rules at once!</div>
+
+                            {BEHAVIORS.map((beh) => (
+                                <div
+                                    key={beh.id}
+                                    draggable="true"
+                                    onDragStart={(e) => {
+                                        e.dataTransfer.setData("type", "NEW_BEHAVIOR");
+                                        e.dataTransfer.setData("behaviorId", beh.id);
+                                    }}
+                                    className="w-full bg-white border-2 border-purple-400 rounded-lg p-3 shadow-md cursor-grab active:cursor-grabbing hover:scale-105 transition-transform flex flex-col items-center gap-2 group"
+                                >
+                                    <div className="w-12 h-12 rounded-full bg-purple-50 flex items-center justify-center border-2 border-purple-200 group-hover:bg-purple-100 transition-colors">
+                                        {beh.icon}
+                                    </div>
+                                    <div className="text-center">
+                                        <div className="font-bold text-sm text-purple-900">{beh.label}</div>
+                                        <div className="text-[10px] text-gray-500 leading-tight mt-1">{beh.description}</div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )
+                    }
+                </div >
+            </div >
 
             {/* --- MAIN BOARD --- */}
-            <div className="flex-1 flex flex-col bg-white border-[8px] border-[#d4a373] rounded-xl shadow-2xl relative overflow-hidden">
+            < div className="flex-1 flex flex-col bg-white border-[8px] border-[#d4a373] rounded-xl shadow-2xl relative overflow-hidden" >
                 <div className="h-16 bg-[#f3e5f5] border-b-[3px] border-[#d4a373] flex items-center justify-center gap-4 shrink-0">
                     <button onClick={() => setViewScope('GLOBAL')} className={`flex items-center gap-2 px-6 py-2 rounded-full font-bold border-2 transition-all ${viewScope === 'GLOBAL' ? 'bg-blue-500 text-white border-black scale-105 shadow-md' : 'bg-white text-gray-400 border-gray-300 hover:bg-gray-50'}`}>
                         <Globe size={20} /> WORLD RULES
@@ -1781,6 +1910,27 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                             );
                                         }
 
+                                        // PUSH EFFECT
+                                        if (effect.type === InteractionType.PUSH) {
+                                            return (
+                                                <div key={idx} className="relative group shrink-0">
+                                                    <div className="flex flex-col items-center bg-white border-2 border-blue-500 rounded-lg p-2 shadow-sm h-[90px] min-w-[80px] justify-center gap-1">
+                                                        <span className="text-[10px] font-bold text-blue-600 uppercase">PUSH</span>
+                                                        <div className="w-10 h-10 border-2 border-black rounded bg-blue-100 flex items-center justify-center">
+                                                            {effect.direction === 'UP' && <ArrowDown size={24} className="text-blue-600 rotate-180" />}
+                                                            {effect.direction === 'DOWN' && <ArrowDown size={24} className="text-blue-600" />}
+                                                            {effect.direction === 'LEFT' && <ArrowRight size={24} className="text-blue-600 rotate-180" />}
+                                                            {effect.direction === 'RIGHT' && <ArrowRight size={24} className="text-blue-600" />}
+                                                        </div>
+                                                        <div className="text-[8px] bg-blue-100 px-2 rounded-full max-w-[70px] truncate mt-1">
+                                                            FORCE: {effect.force || 1}
+                                                        </div>
+                                                    </div>
+                                                    <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center hover:scale-110 z-10"><X size={14} /></button>
+                                                </div>
+                                            );
+                                        }
+
                                         // JUMP EFFECT
                                         if (effect.type === InteractionType.JUMP) {
                                             return (
@@ -1922,249 +2072,259 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                     </button>
                     <div className="h-20"></div>
                 </div>
-            </div>
+            </div >
 
             {/* --- RIGHT SIDEBAR: AVAILABLE EFFECTS --- */}
-            <div className="w-64 bg-green-100 border-[3px] border-black/10 p-4 flex flex-col gap-4 items-center shadow-inner rounded-r-lg overflow-y-auto shrink-0">
+            < div className="w-64 bg-green-100 border-[3px] border-black/10 p-4 flex flex-col gap-4 items-center shadow-inner rounded-r-lg overflow-y-auto shrink-0" >
                 <h3 className="font-bold text-xl text-green-800 flex items-center gap-2">EFFECTS <Puzzle size={20} /></h3>
-                {EFFECT_MAGNETS.map((mag) => (
-                    <div key={mag.type} draggable="true" onDragStart={(e) => { e.dataTransfer.setData("type", "NEW_EFFECT_MAGNET"); e.dataTransfer.setData("interaction", mag.type); }} className="w-full bg-white border-2 border-green-500 rounded-lg p-2 shadow-md cursor-grab active:cursor-grabbing hover:scale-105 transition-transform flex flex-col items-center gap-1 group">
-                        <div className="font-bold text-sm text-green-600">THEN...</div>
-                        <div className="w-10 h-10 rounded flex items-center justify-center text-white border border-black shadow-sm" style={{ backgroundColor: mag.color }}>{getIcon(mag.icon)}</div>
-                        <span className="font-bold text-md text-center leading-none">{mag.label}</span>
-                    </div>
-                ))}
-            </div>
+                {
+                    EFFECT_MAGNETS.map((mag) => (
+                        <div key={mag.type} draggable="true" onDragStart={(e) => { e.dataTransfer.setData("type", "NEW_EFFECT_MAGNET"); e.dataTransfer.setData("interaction", mag.type); }} className="w-full bg-white border-2 border-green-500 rounded-lg p-2 shadow-md cursor-grab active:cursor-grabbing hover:scale-105 transition-transform flex flex-col items-center gap-1 group">
+                            <div className="font-bold text-sm text-green-600">THEN...</div>
+                            <div className="w-10 h-10 rounded flex items-center justify-center text-white border border-black shadow-sm" style={{ backgroundColor: mag.color }}>{getIcon(mag.icon)}</div>
+                            <span className="font-bold text-md text-center leading-none">{mag.label}</span>
+                        </div>
+                    ))
+                }
+            </div >
 
             {/* KEY RECORDER MODAL */}
-            {keyRecordModal && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                    <div className="bg-white border-4 border-black rounded-xl p-6 w-[400px] shadow-[8px_8px_0px_rgba(0,0,0,1)] flex flex-col items-center">
-                        <h3 className="text-2xl font-black mb-4 font-['Gochi_Hand']">PRESS ANY KEY</h3>
-                        <div className="w-full h-32 bg-gray-100 border-2 border-dashed border-gray-400 rounded-lg flex items-center justify-center mb-4 relative overflow-hidden">
-                            <div className="animate-pulse text-gray-400 font-bold text-xl">Waiting for input...</div>
-                            <input
-                                autoFocus
-                                className="absolute inset-0 opacity-0 cursor-pointer"
-                                onKeyDown={(e) => {
-                                    e.preventDefault();
-                                    const key = e.key.toUpperCase();
-                                    // Map arrow keys to simplified names if needed, or just use key code
-                                    let finalKey = key;
-                                    if (key === 'ARROWUP') finalKey = 'UP';
-                                    if (key === 'ARROWDOWN') finalKey = 'DOWN';
-                                    if (key === 'ARROWLEFT') finalKey = 'LEFT';
-                                    if (key === 'ARROWRIGHT') finalKey = 'RIGHT';
-                                    if (key === ' ') finalKey = 'SPACE';
+            {
+                keyRecordModal && (
+                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                        <div className="bg-white border-4 border-black rounded-xl p-6 w-[400px] shadow-[8px_8px_0px_rgba(0,0,0,1)] flex flex-col items-center">
+                            <h3 className="text-2xl font-black mb-4 font-['Gochi_Hand']">PRESS ANY KEY</h3>
+                            <div className="w-full h-32 bg-gray-100 border-2 border-dashed border-gray-400 rounded-lg flex items-center justify-center mb-4 relative overflow-hidden">
+                                <div className="animate-pulse text-gray-400 font-bold text-xl">Waiting for input...</div>
+                                <input
+                                    autoFocus
+                                    className="absolute inset-0 opacity-0 cursor-pointer"
+                                    onKeyDown={(e) => {
+                                        e.preventDefault();
+                                        const key = e.key.toUpperCase();
+                                        // Map arrow keys to simplified names if needed, or just use key code
+                                        let finalKey = key;
+                                        if (key === 'ARROWUP') finalKey = 'UP';
+                                        if (key === 'ARROWDOWN') finalKey = 'DOWN';
+                                        if (key === 'ARROWLEFT') finalKey = 'LEFT';
+                                        if (key === 'ARROWRIGHT') finalKey = 'RIGHT';
+                                        if (key === ' ') finalKey = 'SPACE';
 
-                                    onUpdateRules(gameData.rules.map(r => r.id === keyRecordModal.ruleId ? { ...r, key: finalKey } : r));
-                                    setKeyRecordModal(null);
-                                }}
-                                onBlur={() => setKeyRecordModal(null)}
-                            />
-                        </div>
-                        <button
-                            onClick={() => setKeyRecordModal(null)}
-                            className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded font-bold border-2 border-black shadow-[2px_2px_0px_rgba(0,0,0,1)]"
-                        >
-                            CANCEL
-                        </button>
-                    </div>
-                </div>
-            )}
-
-            {/* JUMP CONFIG MODAL */}
-            {jumpConfigModal && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                    <div className="bg-white border-4 border-black rounded-xl p-6 w-[400px] shadow-[8px_8px_0px_rgba(0,0,0,1)]">
-                        <h3 className="text-2xl font-black mb-4 font-['Gochi_Hand']">JUMP POWER</h3>
-
-                        <div className="mb-6">
-                            <label className="block font-bold mb-2">Intensity: {jumpConfigModal.intensity}</label>
-                            <input
-                                type="range"
-                                min="5"
-                                max="40"
-                                step="1"
-                                value={jumpConfigModal.intensity}
-                                onChange={(e) => setJumpConfigModal({ ...jumpConfigModal, intensity: parseInt(e.target.value) })}
-                                className="w-full h-4 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-emerald-500"
-                            />
-                            <div className="flex justify-between text-xs text-gray-500 mt-1">
-                                <span>Low</span>
-                                <span>High</span>
+                                        onUpdateRules(gameData.rules.map(r => r.id === keyRecordModal.ruleId ? { ...r, key: finalKey } : r));
+                                        setKeyRecordModal(null);
+                                    }}
+                                    onBlur={() => setKeyRecordModal(null)}
+                                />
                             </div>
-                        </div>
-
-                        <div className="flex justify-end gap-2">
                             <button
-                                onClick={() => setJumpConfigModal(null)}
+                                onClick={() => setKeyRecordModal(null)}
                                 className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded font-bold border-2 border-black shadow-[2px_2px_0px_rgba(0,0,0,1)]"
                             >
                                 CANCEL
                             </button>
-                            <button
-                                onClick={() => {
-                                    onUpdateRules(gameData.rules.map(r => {
-                                        if (r.id === jumpConfigModal.ruleId) {
-                                            const newEffects = [...r.effects];
-                                            newEffects[jumpConfigModal.effectIndex] = {
-                                                ...newEffects[jumpConfigModal.effectIndex],
-                                                value: jumpConfigModal.intensity
-                                            };
-                                            return { ...r, effects: newEffects };
-                                        }
-                                        return r;
-                                    }));
-                                    setJumpConfigModal(null);
-                                }}
-                                className="px-4 py-2 bg-emerald-400 hover:bg-emerald-500 text-white rounded font-bold border-2 border-black shadow-[2px_2px_0px_rgba(0,0,0,1)]"
-                            >
-                                SAVE
-                            </button>
                         </div>
                     </div>
-                </div>
-            )}
-            {/* WAIT CONFIG MODAL */}
-            {waitConfigModal && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
-                    <div className="bg-white p-6 rounded-xl border-4 border-black shadow-[8px_8px_0px_rgba(0,0,0,1)] w-[300px] animate-bounce-in">
-                        <h3 className="text-2xl font-black mb-6 font-['Gochi_Hand'] text-center flex items-center justify-center gap-2">
-                            <Clock size={28} className="text-gray-500" />
-                            Temps d'attente
-                        </h3>
+                )
+            }
 
-                        <div className="space-y-6">
-                            <div className="flex flex-col items-center gap-2">
-                                <span className="text-4xl font-black text-gray-700 font-['Gochi_Hand']">
-                                    {waitConfigModal.duration}s
-                                </span>
+            {/* JUMP CONFIG MODAL */}
+            {
+                jumpConfigModal && (
+                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                        <div className="bg-white border-4 border-black rounded-xl p-6 w-[400px] shadow-[8px_8px_0px_rgba(0,0,0,1)]">
+                            <h3 className="text-2xl font-black mb-4 font-['Gochi_Hand']">JUMP POWER</h3>
+
+                            <div className="mb-6">
+                                <label className="block font-bold mb-2">Intensity: {jumpConfigModal.intensity}</label>
                                 <input
                                     type="range"
-                                    min="0.1"
-                                    max="5"
-                                    step="0.1"
-                                    value={waitConfigModal.duration}
-                                    onChange={(e) => setWaitConfigModal({ ...waitConfigModal, duration: parseFloat(e.target.value) })}
-                                    className="w-full h-4 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-gray-600 border-2 border-black"
+                                    min="5"
+                                    max="40"
+                                    step="1"
+                                    value={jumpConfigModal.intensity}
+                                    onChange={(e) => setJumpConfigModal({ ...jumpConfigModal, intensity: parseInt(e.target.value) })}
+                                    className="w-full h-4 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-emerald-500"
                                 />
-                                <div className="flex justify-between w-full text-xs font-bold text-gray-400 font-['Gochi_Hand']">
-                                    <span>0.1s</span>
-                                    <span>5s</span>
+                                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                                    <span>Low</span>
+                                    <span>High</span>
                                 </div>
                             </div>
 
-                            <div className="flex justify-end gap-2 mt-4">
+                            <div className="flex justify-end gap-2">
                                 <button
-                                    onClick={() => setWaitConfigModal(null)}
-                                    className="px-4 py-2 bg-gray-200 border-2 border-black rounded-lg font-bold font-['Gochi_Hand'] hover:bg-gray-300"
+                                    onClick={() => setJumpConfigModal(null)}
+                                    className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded font-bold border-2 border-black shadow-[2px_2px_0px_rgba(0,0,0,1)]"
                                 >
-                                    Annuler
+                                    CANCEL
                                 </button>
                                 <button
                                     onClick={() => {
-                                        updateEffect(waitConfigModal.ruleId, waitConfigModal.effectIndex, { value: waitConfigModal.duration });
-                                        setWaitConfigModal(null);
+                                        onUpdateRules(gameData.rules.map(r => {
+                                            if (r.id === jumpConfigModal.ruleId) {
+                                                const newEffects = [...r.effects];
+                                                newEffects[jumpConfigModal.effectIndex] = {
+                                                    ...newEffects[jumpConfigModal.effectIndex],
+                                                    value: jumpConfigModal.intensity
+                                                };
+                                                return { ...r, effects: newEffects };
+                                            }
+                                            return r;
+                                        }));
+                                        setJumpConfigModal(null);
                                     }}
-                                    className="px-4 py-2 bg-green-400 border-2 border-black rounded-lg font-bold font-['Gochi_Hand'] hover:bg-green-500 shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-[2px] active:shadow-none"
+                                    className="px-4 py-2 bg-emerald-400 hover:bg-emerald-500 text-white rounded font-bold border-2 border-black shadow-[2px_2px_0px_rgba(0,0,0,1)]"
                                 >
-                                    Valider
+                                    SAVE
                                 </button>
                             </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
+            {/* WAIT CONFIG MODAL */}
+            {
+                waitConfigModal && (
+                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
+                        <div className="bg-white p-6 rounded-xl border-4 border-black shadow-[8px_8px_0px_rgba(0,0,0,1)] w-[300px] animate-bounce-in">
+                            <h3 className="text-2xl font-black mb-6 font-['Gochi_Hand'] text-center flex items-center justify-center gap-2">
+                                <Clock size={28} className="text-gray-500" />
+                                Temps d'attente
+                            </h3>
+
+                            <div className="space-y-6">
+                                <div className="flex flex-col items-center gap-2">
+                                    <span className="text-4xl font-black text-gray-700 font-['Gochi_Hand']">
+                                        {waitConfigModal.duration}s
+                                    </span>
+                                    <input
+                                        type="range"
+                                        min="0.1"
+                                        max="5"
+                                        step="0.1"
+                                        value={waitConfigModal.duration}
+                                        onChange={(e) => setWaitConfigModal({ ...waitConfigModal, duration: parseFloat(e.target.value) })}
+                                        className="w-full h-4 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-gray-600 border-2 border-black"
+                                    />
+                                    <div className="flex justify-between w-full text-xs font-bold text-gray-400 font-['Gochi_Hand']">
+                                        <span>0.1s</span>
+                                        <span>5s</span>
+                                    </div>
+                                </div>
+
+                                <div className="flex justify-end gap-2 mt-4">
+                                    <button
+                                        onClick={() => setWaitConfigModal(null)}
+                                        className="px-4 py-2 bg-gray-200 border-2 border-black rounded-lg font-bold font-['Gochi_Hand'] hover:bg-gray-300"
+                                    >
+                                        Annuler
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            updateEffect(waitConfigModal.ruleId, waitConfigModal.effectIndex, { value: waitConfigModal.duration });
+                                            setWaitConfigModal(null);
+                                        }}
+                                        className="px-4 py-2 bg-green-400 border-2 border-black rounded-lg font-bold font-['Gochi_Hand'] hover:bg-green-500 shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-[2px] active:shadow-none"
+                                    >
+                                        Valider
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
 
             {/* PATH EDITOR MODAL */}
-            {pathEditorModal && (
-                <div className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center" onClick={() => setPathEditorModal(null)}>
-                    <div className="bg-white p-4 rounded-xl border-4 border-black shadow-2xl relative max-w-[90vw] max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
-                        <h3 className="text-xl font-bold mb-4 text-center flex items-center justify-center gap-2">
-                            <Map className="text-blue-500" /> DRAW PATH
-                        </h3>
+            {
+                pathEditorModal && (
+                    <div className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center" onClick={() => setPathEditorModal(null)}>
+                        <div className="bg-white p-4 rounded-xl border-4 border-black shadow-2xl relative max-w-[90vw] max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                            <h3 className="text-xl font-bold mb-4 text-center flex items-center justify-center gap-2">
+                                <Map className="text-blue-500" /> DRAW PATH
+                            </h3>
 
-                        <div className="relative border-2 border-black bg-gray-100 overflow-hidden cursor-crosshair"
-                            style={{ width: SCENE_WIDTH, height: SCENE_HEIGHT, transform: 'scale(0.8)', transformOrigin: 'top center' }}
-                            onClick={(e) => {
-                                const rect = e.currentTarget.getBoundingClientRect();
-                                const x = (e.clientX - rect.left) / 0.8; // Adjust for scale
-                                const y = (e.clientY - rect.top) / 0.8;
+                            <div className="relative border-2 border-black bg-gray-100 overflow-hidden cursor-crosshair"
+                                style={{ width: SCENE_WIDTH, height: SCENE_HEIGHT, transform: 'scale(0.8)', transformOrigin: 'top center' }}
+                                onClick={(e) => {
+                                    const rect = e.currentTarget.getBoundingClientRect();
+                                    const x = (e.clientX - rect.left) / 0.8; // Adjust for scale
+                                    const y = (e.clientY - rect.top) / 0.8;
 
-                                // Add point
-                                const newPath = [...pathEditorModal.path, { x, y }];
-                                setPathEditorModal({ ...pathEditorModal, path: newPath });
+                                    // Add point
+                                    const newPath = [...pathEditorModal.path, { x, y }];
+                                    setPathEditorModal({ ...pathEditorModal, path: newPath });
 
-                                // Update rule
-                                onUpdateRules(gameData.rules.map(r => {
-                                    if (r.id === pathEditorModal.ruleId) {
-                                        const newEffects = [...r.effects];
-                                        newEffects[pathEditorModal.effectIndex] = { ...newEffects[pathEditorModal.effectIndex], path: newPath };
-                                        return { ...r, effects: newEffects };
-                                    }
-                                    return r;
-                                }));
-                            }}
-                        >
-                            {/* Background Preview */}
-                            {currentScene && <div className="absolute inset-0 opacity-50 pointer-events-none">
-                                {currentScene.backgroundImage && <img src={currentScene.backgroundImage} className="w-full h-full object-cover" />}
-                            </div>}
-
-                            {/* Grid */}
-                            <div className="absolute inset-0 pointer-events-none opacity-20" style={{ backgroundImage: 'radial-gradient(#000 1px, transparent 1px)', backgroundSize: '20px 20px' }}></div>
-
-                            {/* Path Visualization */}
-                            <svg className="absolute inset-0 pointer-events-none w-full h-full">
-                                <polyline
-                                    points={pathEditorModal.path.map(p => `${p.x},${p.y}`).join(' ')}
-                                    fill="none"
-                                    stroke="#3b82f6"
-                                    strokeWidth="4"
-                                    strokeDasharray="8 4"
-                                />
-                                {pathEditorModal.path.map((p, i) => (
-                                    <g key={i} transform={`translate(${p.x},${p.y})`}>
-                                        <circle r="6" fill="#2563eb" stroke="white" strokeWidth="2" />
-                                        <text y="-10" textAnchor="middle" className="text-[10px] font-bold fill-blue-800 bg-white">#{i + 1}</text>
-                                        {i > 0 && (
-                                            // Arrow direction
-                                            <path d="M -5,-5 L 0,0 L -5,5" stroke="#3b82f6" strokeWidth="2" fill="none" transform={`rotate(${Math.atan2(p.y - pathEditorModal.path[i - 1].y, p.x - pathEditorModal.path[i - 1].x) * 180 / Math.PI}) translate(-15, 0)`} />
-                                        )}
-                                    </g>
-                                ))}
-                            </svg>
-                        </div>
-
-                        <div className="flex justify-between mt-4">
-                            <button
-                                onClick={() => {
-                                    // Clear path
-                                    setPathEditorModal({ ...pathEditorModal, path: [] });
+                                    // Update rule
                                     onUpdateRules(gameData.rules.map(r => {
                                         if (r.id === pathEditorModal.ruleId) {
                                             const newEffects = [...r.effects];
-                                            newEffects[pathEditorModal.effectIndex] = { ...newEffects[pathEditorModal.effectIndex], path: [] };
+                                            newEffects[pathEditorModal.effectIndex] = { ...newEffects[pathEditorModal.effectIndex], path: newPath };
                                             return { ...r, effects: newEffects };
                                         }
                                         return r;
                                     }));
                                 }}
-                                className="px-4 py-2 bg-red-100 text-red-600 rounded-lg font-bold hover:bg-red-200"
                             >
-                                CLEAR PATH
-                            </button>
-                            <button
-                                onClick={() => setPathEditorModal(null)}
-                                className="px-6 py-2 bg-black text-white rounded-lg font-bold hover:scale-105 transition-transform"
-                            >
-                                DONE
-                            </button>
+                                {/* Background Preview */}
+                                {currentScene && <div className="absolute inset-0 opacity-50 pointer-events-none">
+                                    {currentScene.backgroundImage && <img src={currentScene.backgroundImage} className="w-full h-full object-cover" />}
+                                </div>}
+
+                                {/* Grid */}
+                                <div className="absolute inset-0 pointer-events-none opacity-20" style={{ backgroundImage: 'radial-gradient(#000 1px, transparent 1px)', backgroundSize: '20px 20px' }}></div>
+
+                                {/* Path Visualization */}
+                                <svg className="absolute inset-0 pointer-events-none w-full h-full">
+                                    <polyline
+                                        points={pathEditorModal.path.map(p => `${p.x},${p.y}`).join(' ')}
+                                        fill="none"
+                                        stroke="#3b82f6"
+                                        strokeWidth="4"
+                                        strokeDasharray="8 4"
+                                    />
+                                    {pathEditorModal.path.map((p, i) => (
+                                        <g key={i} transform={`translate(${p.x},${p.y})`}>
+                                            <circle r="6" fill="#2563eb" stroke="white" strokeWidth="2" />
+                                            <text y="-10" textAnchor="middle" className="text-[10px] font-bold fill-blue-800 bg-white">#{i + 1}</text>
+                                            {i > 0 && (
+                                                // Arrow direction
+                                                <path d="M -5,-5 L 0,0 L -5,5" stroke="#3b82f6" strokeWidth="2" fill="none" transform={`rotate(${Math.atan2(p.y - pathEditorModal.path[i - 1].y, p.x - pathEditorModal.path[i - 1].x) * 180 / Math.PI}) translate(-15, 0)`} />
+                                            )}
+                                        </g>
+                                    ))}
+                                </svg>
+                            </div>
+
+                            <div className="flex justify-between mt-4">
+                                <button
+                                    onClick={() => {
+                                        // Clear path
+                                        setPathEditorModal({ ...pathEditorModal, path: [] });
+                                        onUpdateRules(gameData.rules.map(r => {
+                                            if (r.id === pathEditorModal.ruleId) {
+                                                const newEffects = [...r.effects];
+                                                newEffects[pathEditorModal.effectIndex] = { ...newEffects[pathEditorModal.effectIndex], path: [] };
+                                                return { ...r, effects: newEffects };
+                                            }
+                                            return r;
+                                        }));
+                                    }}
+                                    className="px-4 py-2 bg-red-100 text-red-600 rounded-lg font-bold hover:bg-red-200"
+                                >
+                                    CLEAR PATH
+                                </button>
+                                <button
+                                    onClick={() => setPathEditorModal(null)}
+                                    className="px-6 py-2 bg-black text-white rounded-lg font-bold hover:scale-105 transition-transform"
+                                >
+                                    DONE
+                                </button>
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
         </div >
     );
 };

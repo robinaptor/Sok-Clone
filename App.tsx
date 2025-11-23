@@ -8,8 +8,11 @@ import { RuleEditor } from './components/RuleEditor';
 import { GamePlayer } from './components/GamePlayer';
 import { ProjectManager } from './components/ProjectManager';
 import { HelpSection } from './components/HelpSection';
-import { generateGameIdea } from './services/geminiService';
-import { Sparkles, Plus, Download, Upload, FileUp, FileDown, Home, Save, ChevronUp, Paintbrush } from 'lucide-react';
+import { CreationWizard } from './components/CreationWizard';
+import { ContextualHelp } from './components/ContextualHelp';
+import { TutorialOverlay } from './components/TutorialOverlay';
+import { generateGameIdea, generateActor } from './services/geminiService';
+import { Sparkles, Plus, Download, Upload, FileUp, FileDown, Home, Save, ChevronUp, Paintbrush, Wand2 } from 'lucide-react';
 
 const App: React.FC = () => {
   // Default to PROJECTS view (Home Screen)
@@ -25,6 +28,9 @@ const App: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [savedProjects, setSavedProjects] = useState<GameData[]>([]);
+  const [showCreationWizard, setShowCreationWizard] = useState(false);
+  const [showContextualHelp, setShowContextualHelp] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(false);
 
   // --- STORAGE LOGIC ---
   useEffect(() => {
@@ -35,7 +41,18 @@ const App: React.FC = () => {
         setSavedProjects(JSON.parse(stored));
       } catch (e) { console.error("Failed to load projects", e); }
     }
+
+    // Check tutorial status
+    const tutorialDone = localStorage.getItem('sok_maker_tutorial_done');
+    if (!tutorialDone) {
+      setShowTutorial(true);
+    }
   }, []);
+
+  const handleTutorialComplete = () => {
+    setShowTutorial(false);
+    localStorage.setItem('sok_maker_tutorial_done', 'true');
+  };
 
   const saveProjectToStorage = (dataToSave: GameData) => {
     const updatedProject = { ...dataToSave, lastModified: Date.now() };
@@ -98,20 +115,132 @@ const App: React.FC = () => {
   };
 
   // --- ACTOR LOGIC ---
-  const addActor = () => {
+  const handleWizardCreate = (type: 'HERO' | 'ENEMY' | 'ITEM' | 'BLOCK') => {
     const canvas = document.createElement('canvas');
     canvas.width = CANVAS_SIZE;
     canvas.height = CANVAS_SIZE;
+    const ctx = canvas.getContext('2d');
+
+    if (ctx) {
+      // Draw default look based on type
+      ctx.fillStyle = type === 'HERO' ? '#3b82f6' : // Blue
+        type === 'ENEMY' ? '#ef4444' : // Red
+          type === 'ITEM' ? '#eab308' : // Yellow
+            '#6b7280'; // Gray (Block)
+
+      // Draw a shape
+      if (type === 'BLOCK') {
+        ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+        ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+        ctx.lineWidth = 4;
+        ctx.strokeRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+      } else {
+        // Circle for others
+        ctx.beginPath();
+        ctx.arc(CANVAS_SIZE / 2, CANVAS_SIZE / 2, CANVAS_SIZE / 2 - 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'black';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+
+      // Add a simple face or symbol
+      ctx.fillStyle = 'white';
+      ctx.font = 'bold 20px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const symbol = type === 'HERO' ? '^_^' : type === 'ENEMY' ? 'Ò_Ó' : type === 'ITEM' ? '$' : '#';
+      ctx.fillText(symbol, CANVAS_SIZE / 2, CANVAS_SIZE / 2);
+    }
 
     const newActor: Actor = {
       id: Math.random().toString(36).substr(2, 9),
-      name: `Thing ${gameData.actors.length + 1}`,
+      name: type === 'HERO' ? 'Hero' : type === 'ENEMY' ? 'Baddie' : type === 'ITEM' ? 'Coin' : 'Wall',
       imageData: canvas.toDataURL()
     };
 
     setGameData(prev => ({ ...prev, actors: [...prev.actors, newActor] }));
     setSelectedActorId(newActor.id);
-    setEditingSceneBackgroundId(null); // Ensure we exit BG edit mode
+    setEditingSceneBackgroundId(null);
+    setShowCreationWizard(false);
+    if (view !== ToolMode.DRAW) setView(ToolMode.DRAW);
+  };
+
+  const handleMagicCreate = async (type: 'HERO' | 'ENEMY' | 'ITEM' | 'BLOCK', prompt: string) => {
+    setIsGenerating(true);
+    const result = await generateActor(prompt, type);
+    setIsGenerating(false);
+
+    if (result) {
+      const { actor, rules } = result;
+
+      // Convert AI rules to Game Rules
+      const newRules: Rule[] = rules.map((r: any) => ({
+        id: Math.random().toString(36).substr(2, 9),
+        scope: 'GLOBAL',
+        trigger: r.trigger as any,
+        key: r.key,
+        subjectId: r.trigger === 'COLLISION' ? actor.id : '',
+        objectId: r.trigger === 'COLLISION' ? (r.targetTag === 'HERO' ? 'hero' : '') : '', // Simplified mapping
+        effects: [{
+          type: r.effectType as any,
+          direction: r.effectDirection,
+          value: 1
+        }]
+      }));
+
+      // Add to Game Data
+      setGameData(prev => ({
+        ...prev,
+        actors: [...prev.actors, actor],
+        rules: [...prev.rules, ...newRules],
+        // Also add to current scene!
+        scenes: prev.scenes.map(s => {
+          if (s.id === currentSceneId) {
+            return {
+              ...s,
+              objects: [...s.objects, {
+                id: Math.random().toString(36).substr(2, 9),
+                actorId: actor.id,
+                x: Math.floor(CANVAS_SIZE / 2 - ACTOR_SIZE / 2),
+                y: Math.floor(CANVAS_SIZE / 2 - ACTOR_SIZE / 2)
+              }]
+            };
+          }
+          return s;
+        })
+      }));
+
+      setSelectedActorId(actor.id);
+      setShowCreationWizard(false);
+      setView(ToolMode.SCENE); // Go to scene to see the new actor
+    }
+  };
+
+  const openWizard = () => {
+    setShowCreationWizard(true);
+  };
+
+  const addActorDirectly = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = CANVAS_SIZE;
+    canvas.height = CANVAS_SIZE;
+    const ctx = canvas.getContext('2d');
+
+    if (ctx) {
+      // Draw NOTHING! The user wants it empty.
+      // ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE); // Already empty by default
+    }
+
+    const newActor: Actor = {
+      id: Math.random().toString(36).substr(2, 9),
+      name: 'New Actor',
+      imageData: canvas.toDataURL()
+    };
+
+    setGameData(prev => ({ ...prev, actors: [...prev.actors, newActor] }));
+    setSelectedActorId(newActor.id);
+    setEditingSceneBackgroundId(null);
     if (view !== ToolMode.DRAW) setView(ToolMode.DRAW);
   };
 
@@ -339,8 +468,9 @@ const App: React.FC = () => {
     );
   }
 
-  const Tab = ({ mode, label }: { mode: ToolMode, label: string }) => (
+  const Tab = ({ mode, label, ...props }: { mode: ToolMode, label: string } & React.HTMLAttributes<HTMLButtonElement>) => (
     <button
+      {...props}
       onClick={() => {
         setView(mode);
         // If switching away from DRAW manually, assume we are done editing BG
@@ -367,7 +497,7 @@ const App: React.FC = () => {
       <header className="h-16 px-4 flex items-center justify-between border-b-[3px] border-black bg-white relative z-20 shadow-sm shrink-0">
         <div className="flex items-center gap-4">
           {/* HOME BUTTON */}
-          <button onClick={handleGoHome} className="hover:scale-110 transition-transform" title="Back to Projects">
+          <button onClick={handleGoHome} className="hover:scale-110 transition-transform" title="Back to Projects" data-help="Go back to your list of projects">
             <div className="bg-gray-200 p-2 rounded-full border-2 border-black">
               <Home size={20} />
             </div>
@@ -375,36 +505,34 @@ const App: React.FC = () => {
 
           <h1 className="text-3xl font-bold tracking-widest rotate-[-2deg] ml-2 underline decoration-wavy decoration-pink-300 hidden md:block">SOK-CLONE</h1>
 
-          <div className="hidden md:flex items-center sketch-box px-3 py-0.5 bg-yellow-50 ml-4 h-10 rotate-1">
-            <Sparkles size={18} className="text-purple-500 mr-2 animate-pulse" />
-            <input
-              value={prompt}
-              onChange={e => setPrompt(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleGenerate()}
-              placeholder={isGenerating ? "Dreaming..." : "Tell me a game idea..."}
-              disabled={isGenerating}
-              className="bg-transparent outline-none w-64 text-lg placeholder-gray-400 font-['Gochi_Hand']"
-            />
-          </div>
+          <button
+            onClick={openWizard}
+            className="hidden md:flex items-center sketch-box px-4 py-1 bg-purple-100 ml-4 h-10 rotate-1 hover:scale-105 transition-transform hover:bg-purple-200 text-purple-900 font-bold gap-2"
+            data-help="Open the Magic Wizard to create new things!"
+          >
+            <Wand2 size={20} className="text-purple-600" />
+            MAGIC WIZARD
+          </button>
         </div>
 
-        <div className="flex gap-3 mr-2 items-center">
+        <div className="flex gap-3 mr-4 items-center">
           {/* QUICK SAVE BTN */}
           <button
             onClick={() => { saveProjectToStorage(gameData); alert("Project Saved!"); }}
             className="sketch-btn w-10 h-10 bg-blue-100 flex items-center justify-center"
             title="Save to My Projects"
+            data-help="Save your game to your local projects list."
           >
             <Save size={20} className="text-blue-600" />
           </button>
 
           <div className="h-6 w-[2px] bg-gray-300 mx-1"></div>
 
-          <label className="cursor-pointer w-10 h-10 hover:bg-gray-100 rounded-full flex items-center justify-center" title="Import JSON">
+          <label className="cursor-pointer w-10 h-10 hover:bg-gray-100 rounded-full flex items-center justify-center" title="Import JSON" data-help="Import a game file (.json) from your computer.">
             <FileUp size={24} />
             <input type="file" onChange={handleImport} className="hidden" accept=".json" />
           </label>
-          <button onClick={handleExport} className="w-10 h-10 hover:bg-gray-100 rounded-full flex items-center justify-center" title="Export JSON">
+          <button onClick={handleExport} className="w-10 h-10 hover:bg-gray-100 rounded-full flex items-center justify-center" title="Export JSON" data-help="Download your game as a file to share with friends!">
             <FileDown size={24} />
           </button>
         </div>
@@ -418,12 +546,18 @@ const App: React.FC = () => {
             <Paintbrush size={18} /> EDITING BACKGROUND
           </div>
         ) : (
-          <Tab mode={ToolMode.DRAW} label="Draw" />
+          <Tab mode={ToolMode.DRAW} label="Draw" data-tutorial="draw-tab" />
         )}
-        <Tab mode={ToolMode.SCENE} label="Place" />
-        <Tab mode={ToolMode.RULES} label="Rules" />
+        <Tab mode={ToolMode.SCENE} label="Place" data-tutorial="scene-tab" />
+        <Tab mode={ToolMode.RULES} label="Rules" data-tutorial="rules-tab" />
         <Tab mode={ToolMode.HELP} label="Aide" />
       </div>
+
+      {/* CONTEXTUAL HELP TOGGLE */}
+      <ContextualHelp active={showContextualHelp} onToggle={() => setShowContextualHelp(!showContextualHelp)} />
+
+      {/* TUTORIAL OVERLAY */}
+      {showTutorial && <TutorialOverlay onComplete={handleTutorialComplete} />}
 
       {/* MAIN WORKSPACE */}
       <main className="flex-1 relative bg-[#fdfbf7] overflow-hidden flex flex-col">
@@ -492,11 +626,12 @@ const App: React.FC = () => {
             </div>
 
             <button
-              onClick={addActor}
-              className="h-24 w-24 flex flex-col items-center justify-center bg-white border-[3px] border-black rounded-2xl hover:bg-gray-50 flex-shrink-0 shadow-md transform hover:-rotate-3 transition-transform group/btn"
+              onClick={addActorDirectly}
+              className="h-24 w-24 flex flex-col items-center justify-center bg-white border-[3px] border-black rounded-2xl hover:bg-gray-50 flex-shrink-0 shadow-md transform hover:rotate-3 transition-transform group/btn-new"
+              data-help="Create a new actor manually"
             >
-              <Plus size={48} className="text-gray-400 group-hover/btn:text-black transition-colors" />
-              <span className="text-sm font-bold text-gray-400 group-hover/btn:text-black">NEW</span>
+              <Plus size={40} className="text-gray-400 group-hover/btn-new:scale-110 transition-transform mb-1" strokeWidth={3} />
+              <span className="text-xs font-bold text-gray-400">NEW</span>
             </button>
 
             <div className="h-20 w-[3px] bg-black/10 rounded-full mx-2" />
@@ -534,6 +669,15 @@ const App: React.FC = () => {
             <div className="w-10 flex-shrink-0"></div>
           </div>
         </div>
+      )}
+
+      {/* WIZARD MODAL */}
+      {showCreationWizard && (
+        <CreationWizard
+          onClose={() => setShowCreationWizard(false)}
+          onCreate={handleWizardCreate}
+          onMagicCreate={handleMagicCreate}
+        />
       )}
 
     </div>

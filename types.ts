@@ -98,6 +98,9 @@ export interface RuleEffect {
   };
   // For MOVE
   path?: { x: number, y: number }[];
+  // For PUSH
+  direction?: 'UP' | 'DOWN' | 'LEFT' | 'RIGHT';
+  force?: number;
 }
 
 export interface Rule {
