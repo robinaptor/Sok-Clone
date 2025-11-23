@@ -111,6 +111,13 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
         path: { x: number, y: number }[];
     } | null>(null);
 
+    // NEW: Wait Config Modal
+    const [waitConfigModal, setWaitConfigModal] = useState<{
+        ruleId: string;
+        effectIndex: number;
+        duration: number;
+    } | null>(null);
+
 
     // NEW: State for Creating/Editing Variable
     const [showNewVarModal, setShowNewVarModal] = useState(false);
@@ -417,6 +424,17 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
             if (r.id === ruleId) {
                 const newEffects = [...r.effects];
                 newEffects.splice(effectIndex, 1);
+                return { ...r, effects: newEffects };
+            }
+            return r;
+        }));
+    };
+
+    const updateEffect = (ruleId: string, effectIndex: number, updates: Partial<RuleEffect>) => {
+        onUpdateRules(gameData.rules.map(r => {
+            if (r.id === ruleId) {
+                const newEffects = [...r.effects];
+                newEffects[effectIndex] = { ...newEffects[effectIndex], ...updates };
                 return { ...r, effects: newEffects };
             }
             return r;
@@ -1842,8 +1860,16 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                             return (
                                                 <div key={idx} className="relative group shrink-0 flex items-center justify-center px-2">
                                                     <div className="flex flex-col items-center bg-white border-2 border-gray-400 rounded-lg p-2 shadow-sm h-[90px] min-w-[80px] justify-center gap-1">
-                                                        <span className="text-[10px] font-bold text-gray-500 uppercase">THEN</span>
-                                                        <div className="w-12 h-10 flex items-center justify-center"><ChevronsRight size={28} className="text-gray-400" /></div>
+                                                        <span className="text-[10px] font-bold text-gray-500 uppercase">WAIT</span>
+                                                        <button
+                                                            onClick={() => setWaitConfigModal({ ruleId: rule.id, effectIndex: idx, duration: effect.value || 1 })}
+                                                            className="flex flex-col items-center justify-center hover:scale-105 transition-transform"
+                                                        >
+                                                            <Clock size={24} className="text-gray-400 mb-1" />
+                                                            <span className="text-xs font-bold bg-gray-100 px-2 rounded border border-gray-300">
+                                                                {effect.value || 1}s
+                                                            </span>
+                                                        </button>
                                                     </div>
                                                     <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5 w-5 h-5 flex items-center justify-center hover:scale-110 z-10"><X size={12} /></button>
                                                 </div>
@@ -2000,6 +2026,57 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                     </div>
                 </div>
             )}
+            {/* WAIT CONFIG MODAL */}
+            {waitConfigModal && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
+                    <div className="bg-white p-6 rounded-xl border-4 border-black shadow-[8px_8px_0px_rgba(0,0,0,1)] w-[300px] animate-bounce-in">
+                        <h3 className="text-2xl font-black mb-6 font-['Gochi_Hand'] text-center flex items-center justify-center gap-2">
+                            <Clock size={28} className="text-gray-500" />
+                            Temps d'attente
+                        </h3>
+
+                        <div className="space-y-6">
+                            <div className="flex flex-col items-center gap-2">
+                                <span className="text-4xl font-black text-gray-700 font-['Gochi_Hand']">
+                                    {waitConfigModal.duration}s
+                                </span>
+                                <input
+                                    type="range"
+                                    min="0.1"
+                                    max="5"
+                                    step="0.1"
+                                    value={waitConfigModal.duration}
+                                    onChange={(e) => setWaitConfigModal({ ...waitConfigModal, duration: parseFloat(e.target.value) })}
+                                    className="w-full h-4 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-gray-600 border-2 border-black"
+                                />
+                                <div className="flex justify-between w-full text-xs font-bold text-gray-400 font-['Gochi_Hand']">
+                                    <span>0.1s</span>
+                                    <span>5s</span>
+                                </div>
+                            </div>
+
+                            <div className="flex justify-end gap-2 mt-4">
+                                <button
+                                    onClick={() => setWaitConfigModal(null)}
+                                    className="px-4 py-2 bg-gray-200 border-2 border-black rounded-lg font-bold font-['Gochi_Hand'] hover:bg-gray-300"
+                                >
+                                    Annuler
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        updateEffect(waitConfigModal.ruleId, waitConfigModal.effectIndex, { value: waitConfigModal.duration });
+                                        setWaitConfigModal(null);
+                                    }}
+                                    className="px-4 py-2 bg-green-400 border-2 border-black rounded-lg font-bold font-['Gochi_Hand'] hover:bg-green-500 shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-[2px] active:shadow-none"
+                                >
+                                    Valider
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* PATH EDITOR MODAL */}
             {pathEditorModal && (
                 <div className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center" onClick={() => setPathEditorModal(null)}>

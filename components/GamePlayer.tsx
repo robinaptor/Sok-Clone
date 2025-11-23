@@ -524,10 +524,24 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
         let previousActionDuration = 0;
 
         for (const effect of effects) {
-            if (effect.type === InteractionType.THEN || effect.type === InteractionType.WAIT) {
+            if (effect.type === InteractionType.THEN) {
                 if (previousActionDuration > 0) {
                     await new Promise(resolve => setTimeout(resolve, previousActionDuration));
                 }
+                previousActionDuration = 0;
+                continue;
+            }
+
+            if (effect.type === InteractionType.WAIT) {
+                // First wait for any previous action
+                if (previousActionDuration > 0) {
+                    await new Promise(resolve => setTimeout(resolve, previousActionDuration));
+                }
+
+                // Then wait for the configured duration (default 1s)
+                const waitTime = (effect.value || 1) * 1000;
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+
                 previousActionDuration = 0;
                 continue;
             }
