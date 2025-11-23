@@ -87,6 +87,15 @@
         background-color: rgba(0, 0, 0, 0.05) !important;
         box-shadow: inset 0 0 0 4px rgba(0,0,0,0.2);
       }
+
+      /* Utility to hide scrollbar but allow scrolling */
+      .no-scrollbar::-webkit-scrollbar {
+          display: none;
+      }
+      .no-scrollbar {
+          -ms-overflow-style: none;  /* IE and Edge */
+          scrollbar-width: none;  /* Firefox */
+      }
     </style>
 </head>
   <body>

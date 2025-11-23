@@ -54,15 +54,7 @@ export const ContextualHelp: React.FC<ContextualHelpProps> = ({ active, onToggle
      }, [active]);
 
      if (!active) {
-          return (
-               <button
-                    onClick={onToggle}
-                    className="fixed top-4 right-4 z-50 bg-white border-2 border-black rounded-full p-2 shadow-md hover:bg-yellow-100 transition-colors"
-                    title="Enable Help Mode"
-               >
-                    <HelpCircle size={24} className="text-black" />
-               </button>
-          );
+          return null;
      }
 
      return (

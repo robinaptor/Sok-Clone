@@ -65,7 +65,8 @@ export const INTERACTION_LABELS: Record<InteractionType, string> = {
   [InteractionType.PUSH]: 'PUSH',
   [InteractionType.MOVE]: 'MOVES', // NEW
   [InteractionType.JUMP]: 'JUMPS',
-  [InteractionType.STEP]: 'STEPS', // NEW
+  [InteractionType.STEP]: 'Step (1 Tile)',
+  [InteractionType.PLAY_MUSIC]: 'Play Music'
 };
 
 // NEW: Magnet Definitions categorized
@@ -107,6 +108,7 @@ export const EFFECT_MAGNETS = [
   { type: InteractionType.WAIT, label: 'WAIT', color: '#9ca3af', icon: 'clock' }, // Gray
 
   { type: InteractionType.THEN, label: 'THEN', color: '#9ca3af', icon: 'timer' }, // Grey/Timer
+  { type: InteractionType.PLAY_MUSIC, label: 'MUSIC', color: '#ec4899', icon: 'music' }, // Pink
 ];
 
 export const NOT_MAGNET = {

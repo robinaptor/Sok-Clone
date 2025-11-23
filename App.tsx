@@ -7,12 +7,13 @@ import { SceneEditor } from './components/SceneEditor';
 import { RuleEditor } from './components/RuleEditor';
 import { GamePlayer } from './components/GamePlayer';
 import { ProjectManager } from './components/ProjectManager';
+import { MusicManager } from './components/MusicManager';
 import { HelpSection } from './components/HelpSection';
 import { CreationWizard } from './components/CreationWizard';
 import { ContextualHelp } from './components/ContextualHelp';
 import { TutorialOverlay } from './components/TutorialOverlay';
 import { generateGameIdea, generateActor } from './services/geminiService';
-import { Sparkles, Plus, Download, Upload, FileUp, FileDown, Home, Save, ChevronUp, Paintbrush, Wand2 } from 'lucide-react';
+import { Trash2, Square, ArrowRight, Trophy, HelpCircle, Hand, Eye, DoorOpen, Utensils, Skull, Puzzle, Ban, RotateCw, Globe, MapPin, X, Timer, ChevronsRight, Flag, Hourglass, Sparkles, Crosshair, Volume2, VolumeX, Edit3, Plus, RefreshCw, Clapperboard, ArrowDown, Repeat, Clock, Hash, PlusCircle, Calculator, Maximize, Lock, Unlock, Paintbrush, Upload, Move, Settings, Play, Save, Book, Music, Wand2, FileUp, FileDown, Home, ChevronUp } from 'lucide-react';
 
 const App: React.FC = () => {
   // Default to PROJECTS view (Home Screen)
@@ -31,6 +32,7 @@ const App: React.FC = () => {
   const [showCreationWizard, setShowCreationWizard] = useState(false);
   const [showContextualHelp, setShowContextualHelp] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
+  const [showMusicManager, setShowMusicManager] = useState(false);
 
   const [history, setHistory] = useState<GameData[]>([]);
   const [future, setFuture] = useState<GameData[]>([]);
@@ -377,6 +379,7 @@ const App: React.FC = () => {
     }));
   };
 
+
   const handleNextScene = () => {
     const currentIndex = gameData.scenes.findIndex(s => s.id === currentSceneId);
     if (currentIndex >= 0 && currentIndex < gameData.scenes.length - 1) {
@@ -595,6 +598,23 @@ const App: React.FC = () => {
           <button onClick={handleExport} className="w-10 h-10 hover:bg-gray-100 rounded-full flex items-center justify-center" title="Export JSON" data-help="Download your game as a file to share with friends!">
             <FileDown size={24} />
           </button>
+
+          <div className="h-6 w-[2px] bg-gray-300 mx-1"></div>
+
+          <button
+            onClick={() => setShowContextualHelp(!showContextualHelp)}
+            className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${showContextualHelp ? 'bg-yellow-400 text-black' : 'hover:bg-gray-100 text-gray-400'}`}
+            title="Toggle Helper"
+          >
+            <HelpCircle size={24} />
+          </button>
+          <button
+            onClick={() => setShowMusicManager(true)}
+            className="w-10 h-10 rounded-full hover:bg-gray-100 flex items-center justify-center text-purple-500 transition-colors"
+            title="Music Manager"
+          >
+            <Music size={24} />
+          </button>
         </div>
       </header>
 
@@ -650,6 +670,10 @@ const App: React.FC = () => {
               onChangeTitle={updateTitle}
               onEditBackground={handleEditSceneBackground}
               onUpdateBackground={handleUpdateBackground}
+              onUpdateMusic={(musicId) => {
+                const updatedScenes = gameData.scenes.map(s => s.id === currentSceneId ? { ...s, backgroundMusicId: musicId } : s);
+                updateGameData({ ...gameData, scenes: updatedScenes });
+              }}
             />
           )}
           {view === ToolMode.RULES && (
@@ -729,6 +753,14 @@ const App: React.FC = () => {
             <div className="w-10 flex-shrink-0"></div>
           </div>
         </div>
+      )}
+
+      {showMusicManager && (
+        <MusicManager
+          gameData={gameData}
+          onUpdateMusic={(music) => updateGameData({ ...gameData, music })}
+          onClose={() => setShowMusicManager(false)}
+        />
       )}
 
       {/* WIZARD MODAL */}

@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { GameData, Rule, InteractionType, RuleTrigger, Sound, GlobalVariable, RuleEffect } from '../types';
 import { TRIGGER_MAGNETS, EFFECT_MAGNETS, SCENE_WIDTH, SCENE_HEIGHT } from '../constants';
-import { X, Plus, Play, Save, Edit2, Edit3, Trash2, Eye, Hand, Flag, Clock, Square, Utensils, ArrowRight, Trophy, DoorOpen, Skull, Zap, Ban, Timer, Sparkles, RefreshCw, Clapperboard, Hash, PlusCircle, MessageCircle, MessageSquare, Keyboard, Footprints, Activity, Crosshair, Target, ArrowDownCircle, Hourglass, Puzzle, Globe, MapPin, Volume2, VolumeX, Mic, Upload, Download, Info, HelpCircle, Settings, Repeat, ChevronsRight, Dices, RotateCw, ArrowDown, Calculator, Map, Gamepad2, Ghost, Coins, AlertTriangle, Copy, Clipboard } from 'lucide-react';
+import { X, Plus, Play, Save, Edit2, Edit3, Trash2, Eye, Hand, Flag, Clock, Square, Utensils, ArrowRight, Trophy, DoorOpen, Skull, Zap, Ban, Timer, Sparkles, RefreshCw, Clapperboard, Hash, PlusCircle, MessageCircle, MessageSquare, Keyboard, Footprints, Activity, Crosshair, Target, ArrowDownCircle, Hourglass, Puzzle, Globe, MapPin, Volume2, VolumeX, Mic, Upload, Download, Info, HelpCircle, Settings, Repeat, ChevronsRight, Dices, RotateCw, ArrowDown, Calculator, Map, Gamepad2, Ghost, Coins, AlertTriangle, Copy, Clipboard, Heart, Music } from 'lucide-react';
 import { SoundRecorder } from './SoundRecorder';
+import { IconEditor } from './IconEditor';
 
 interface RuleEditorProps {
     gameData: GameData;
@@ -16,6 +17,9 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
     const [isDraggingOverBoard, setIsDraggingOverBoard] = useState(false);
     const [viewScope, setViewScope] = useState<'GLOBAL' | 'LOCAL'>('GLOBAL');
     const [sidebarTab, setSidebarTab] = useState<'BLOCKS' | 'BEHAVIORS'>('BLOCKS');
+
+    const [showIconEditor, setShowIconEditor] = useState(false);
+    const [editingVariableId, setEditingVariableId] = useState<string | null>(null);
 
     // BEHAVIORS PRESETS
     const BEHAVIORS = [
@@ -95,7 +99,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
     const [selectionModal, setSelectionModal] = useState<{
         ruleId: string;
         effectIndex: number;
-        type: 'ACTOR' | 'SCENE';
+        type: 'ACTOR' | 'SCENE' | 'MUSIC';
         label: string; // "SELECT ANIMATION" etc
         allowTargetSelection?: boolean; // For SWAP/ANIM (Subject vs Object)
         currentTarget?: 'SUBJECT' | 'OBJECT';
@@ -245,6 +249,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
             case 'arrow-down': return <ArrowDown size={20} strokeWidth={3} />;
             case 'clock': return <Clock size={20} strokeWidth={3} />;
             case 'dice': return <div className="border-2 border-current rounded w-5 h-5 flex items-center justify-center font-bold text-[10px]">50</div>;
+            case 'music': return <Music size={20} strokeWidth={3} />;
             default: return <HelpCircle size={20} />;
         }
     };
@@ -455,6 +460,16 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                             allowTargetSelection: false
                         });
                     }, 50);
+                } else if (interaction === InteractionType.PLAY_MUSIC) {
+                    setTimeout(() => {
+                        setSelectionModal({
+                            ruleId,
+                            effectIndex: gameData.rules.find(r => r.id === ruleId)!.effects.length - 1,
+                            type: 'MUSIC',
+                            label: 'SELECT MUSIC TRACK',
+                            allowTargetSelection: false
+                        });
+                    }, 50);
                 }
 
                 onUpdateRules(gameData.rules.map(r => {
@@ -627,6 +642,8 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                             isLoop: currentLoop
                         };
                     }
+                } else if (type === 'MUSIC') {
+                    newEffects[effectIndex] = { ...newEffects[effectIndex], spawnActorId: selectedId };
                 } else {
                     newEffects[effectIndex] = { ...newEffects[effectIndex], targetSceneId: selectedId };
                 }
@@ -965,6 +982,26 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                         <span className="text-xs font-bold truncate w-full text-center">SCENE {idx + 1}</span>
                                     </button>
                                 ))}
+                            </div>
+                        )}
+
+                        {selectionModal.type === 'MUSIC' && (
+                            <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-2">
+                                {gameData.music?.map((track) => (
+                                    <button key={track.id} onClick={() => handleSelectionSave(track.id)} className="w-full p-3 border-2 border-black rounded-lg hover:bg-pink-100 hover:scale-[1.02] transition-all flex items-center gap-3 shadow-sm bg-white text-left">
+                                        <div className="w-10 h-10 bg-pink-500 rounded-full flex items-center justify-center text-white border-2 border-black">
+                                            <Music size={20} />
+                                        </div>
+                                        <div className="flex-1">
+                                            <div className="font-bold text-sm uppercase">{track.name}</div>
+                                            <div className="text-[10px] text-gray-500 font-bold">{track.type}</div>
+                                        </div>
+                                        <Play size={16} className="text-gray-400" />
+                                    </button>
+                                ))}
+                                {(!gameData.music || gameData.music.length === 0) && (
+                                    <div className="text-center text-gray-500 font-bold mt-10">NO MUSIC TRACKS FOUND.<br />GO TO MUSIC TOOL TO CREATE ONE!</div>
+                                )}
                             </div>
                         )}
 
@@ -1483,13 +1520,38 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                             <div className="font-bold text-blue-700 text-sm flex items-center gap-1">
                                                 <Hash size={12} /> {v.name}
                                             </div>
-                                            <button
-                                                onClick={(e) => { e.stopPropagation(); handleDeleteVariable(v.id); }}
-                                                className="text-red-300 hover:text-red-600 shrink-0"
-                                                title="Delete Variable"
-                                            >
-                                                <Trash2 size={14} />
-                                            </button>
+                                            <div className="flex items-center gap-1">
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        const newMode = !v.isIconMode;
+                                                        const updated = gameData.variables.map(rv => rv.id === v.id ? { ...rv, isIconMode: newMode } : rv);
+                                                        onUpdateVariables(updated);
+                                                    }}
+                                                    className={`p-1 rounded ${v.isIconMode ? 'bg-blue-500 text-white' : 'text-gray-400 hover:bg-gray-100'}`}
+                                                    title="Toggle Icon Mode (Hearts)"
+                                                >
+                                                    {v.isIconMode ? <Heart size={14} fill="currentColor" /> : <Hash size={14} />}
+                                                </button>
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setEditingVariableId(v.id);
+                                                        setShowIconEditor(true);
+                                                    }}
+                                                    className="p-1 text-blue-400 hover:bg-blue-50 rounded"
+                                                    title="Edit Icon"
+                                                >
+                                                    {v.icon ? <img src={v.icon} className="w-4 h-4 object-contain" /> : <Edit2 size={14} />}
+                                                </button>
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); handleDeleteVariable(v.id); }}
+                                                    className="text-red-300 hover:text-red-600 shrink-0"
+                                                    title="Delete Variable"
+                                                >
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            </div>
                                         </div>
                                         <div className="text-[10px] text-gray-400 text-center mt-1">Initial: {v.initialValue}</div>
                                     </div>
@@ -1502,6 +1564,23 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                     <Plus size={16} /> NEW
                                 </button>
                             </div>
+
+                            {/* ICON EDITOR MODAL */}
+                            {showIconEditor && editingVariableId && (
+                                <IconEditor
+                                    initialIcon={gameData.variables.find(v => v.id === editingVariableId)?.icon}
+                                    onSave={(dataUrl) => {
+                                        const updated = gameData.variables.map(v => v.id === editingVariableId ? { ...v, icon: dataUrl, isIconMode: true } : v);
+                                        onUpdateVariables(updated);
+                                        setShowIconEditor(false);
+                                        setEditingVariableId(null);
+                                    }}
+                                    onCancel={() => {
+                                        setShowIconEditor(false);
+                                        setEditingVariableId(null);
+                                    }}
+                                />
+                            )}
 
                         </>
                     ) : (
@@ -1901,6 +1980,32 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                                         <Settings size={12} />
                                                     </button>
 
+                                                    <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                                                        <X size={12} />
+                                                    </button>
+                                                </div>
+                                            );
+                                        }
+
+                                        // PLAY MUSIC EFFECT
+                                        if (effect.type === InteractionType.PLAY_MUSIC) {
+                                            const trackName = gameData.music?.find(t => t.id === effect.spawnActorId)?.name || "Select...";
+                                            return (
+                                                <div key={idx} className="relative group shrink-0">
+                                                    <div className="w-24 h-[90px] bg-pink-100 border-2 border-pink-500 rounded-lg flex flex-col items-center justify-center shadow-sm p-1 gap-1">
+                                                        <Music size={24} className="text-pink-500" />
+                                                        <span className="text-[10px] font-bold text-pink-800 uppercase">PLAY MUSIC</span>
+                                                        <select
+                                                            value={effect.spawnActorId || ''}
+                                                            onChange={(e) => updateEffect(rule.id, idx, { ...effect, spawnActorId: e.target.value })}
+                                                            className="w-full text-[10px] p-1 rounded border border-pink-300 bg-white"
+                                                        >
+                                                            <option value="">Select...</option>
+                                                            {gameData.music?.map(track => (
+                                                                <option key={track.id} value={track.id}>{track.name}</option>
+                                                            ))}
+                                                        </select>
+                                                    </div>
                                                     <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-20">
                                                         <X size={12} />
                                                     </button>

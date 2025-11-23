@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, BookOpen, Palette, Map, Zap, HelpCircle, Lightbulb, ChevronDown, ChevronRight, Keyboard, Eye, Target, Hand, Flag, Hourglass, Hash, Footprints, ArrowDownCircle, Activity, Utensils, Skull, Sparkles, MessageCircle, Crosshair, RefreshCw, Clapperboard, DoorOpen, Trophy, ArrowDown, Clock, Timer, Ban, Dices } from 'lucide-react';
+import { Search, BookOpen, Palette, Map, Zap, HelpCircle, Lightbulb, ChevronDown, ChevronRight, Keyboard, Eye, Target, Hand, Flag, Hourglass, Hash, Footprints, ArrowDownCircle, Activity, Utensils, Skull, Sparkles, MessageCircle, Crosshair, RefreshCw, Clapperboard, DoorOpen, Trophy, ArrowDown, Clock, Timer, Ban, Dices, Music, Volume2 } from 'lucide-react';
 
 export const HelpSection: React.FC = () => {
 
@@ -25,7 +25,7 @@ export const HelpSection: React.FC = () => {
           { name: "SPAWN", desc: "Fait apparaître un nouvel objet.", example: "Coffre ouvert → Spawn Trésor", icon: <Sparkles size={24} />, color: "bg-purple-100 border-purple-400 text-purple-800" },
           { name: "SAY", desc: "Affiche une bulle de dialogue.", example: "Clic PNJ → Say 'Bonjour!'", icon: <MessageCircle size={24} />, color: "bg-yellow-100 border-yellow-400 text-yellow-800" },
           { name: "SHOOT", desc: "Tire un projectile dans une direction.", example: "Clic → Shoot Balle", icon: <Crosshair size={24} />, color: "bg-red-100 border-red-400 text-red-800" },
-          { name: "CONFETTI", desc: "Explosion de particules visuelles.", example: "Gagner → Confetti", icon: <Sparkles size={24} />, color: "bg-purple-100 border-purple-400 text-purple-800" },
+          { name: "PARTICLES", desc: "Effets visuels (Confetti, Pluie, Fumée...).", example: "Gagner → Particles (Confetti)", icon: <Sparkles size={24} />, color: "bg-purple-100 border-purple-400 text-purple-800" },
           { name: "SWAP", desc: "L'objet se transforme en un autre.", example: "Chenille → Swap Papillon", icon: <RefreshCw size={24} />, color: "bg-pink-100 border-pink-400 text-pink-800" },
           { name: "ANIM", desc: "Change l'animation de l'objet.", example: "Avancer → Anim 'Walk'", icon: <Clapperboard size={24} />, color: "bg-pink-100 border-pink-400 text-pink-800" },
           { name: "DOOR (Change Scene)", desc: "Transporte le joueur vers une autre scène.", example: "Touche Porte → Door (Niveau 2)", icon: <DoorOpen size={24} />, color: "bg-purple-100 border-purple-400 text-purple-800" },
@@ -34,6 +34,7 @@ export const HelpSection: React.FC = () => {
           { name: "HOLD", desc: "L'objet est ramassé et suit le porteur.", example: "Touche Épée → Hold", icon: <Hand size={24} />, color: "bg-amber-100 border-amber-400 text-amber-800" },
           { name: "DROP", desc: "Lâche l'objet actuellement tenu.", example: "Clic → Drop", icon: <ArrowDown size={24} />, color: "bg-amber-100 border-amber-400 text-amber-800" },
           { name: "WAIT", desc: "Attend un certain temps avant la suite.", example: "Wait 1s → Boom", icon: <Clock size={24} />, color: "bg-gray-100 border-gray-400 text-gray-800" },
+          { name: "PLAY MUSIC", desc: "Lance une musique de fond.", example: "Start → Play Music 'Battle'", icon: <Music size={24} />, color: "bg-pink-100 border-pink-400 text-pink-800" },
      ];
 
      const MODIFIERS = [
@@ -111,6 +112,8 @@ export const HelpSection: React.FC = () => {
      const gettingStartedMatches = matches("Démarrage Rapide") || matches("Interface Générale") || matches("DRAW") || matches("PLACE") || matches("RULES") || matches("Créer Votre Premier Jeu");
      const drawingMatches = matches("Outils de Dessin") || matches("Créer un Acteur") || matches("Crayon") || matches("Gomme") || matches("Seau") || matches("Clear") || matches("Animations");
      const scenesMatches = matches("Éditeur de Scènes") || matches("Placer des Objets") || matches("Arrière-Plan") || matches("HUD") || matches("ATTACH VARIABLE");
+     const musicMatches = matches("Musique") || matches("Audio") || matches("Sons") || matches("Bruitages") || matches("Enregistrement");
+     const variablesMatches = matches("Variables") || matches("Logique") || matches("Score") || matches("Compteur") || matches("Global") || matches("Local");
 
      // Auto-expand logic
      const isSearching = searchQuery.length > 0;
@@ -118,6 +121,8 @@ export const HelpSection: React.FC = () => {
      const showGettingStarted = !isSearching || gettingStartedMatches;
      const showDrawing = !isSearching || drawingMatches;
      const showScenes = !isSearching || scenesMatches;
+     const showMusic = !isSearching || musicMatches;
+     const showVariables = !isSearching || variablesMatches;
      const showRules = !isSearching || filteredTriggers.length > 0 || filteredEffects.length > 0 || filteredModifiers.length > 0;
      const showTips = !isSearching || filteredTips.length > 0;
      const showFAQ = !isSearching || filteredFAQs.length > 0;
@@ -126,6 +131,8 @@ export const HelpSection: React.FC = () => {
      const expandGettingStarted = expandedSection === 'getting-started' || (isSearching && gettingStartedMatches);
      const expandDrawing = expandedSection === 'drawing' || (isSearching && drawingMatches);
      const expandScenes = expandedSection === 'scenes' || (isSearching && scenesMatches);
+     const expandMusic = expandedSection === 'music' || (isSearching && musicMatches);
+     const expandVariables = expandedSection === 'variables' || (isSearching && variablesMatches);
      const expandRules = expandedSection === 'rules' || (isSearching && showRules);
      const expandTips = expandedSection === 'tips' || (isSearching && showTips);
      const expandFAQ = expandedSection === 'faq' || (isSearching && showFAQ);
@@ -298,6 +305,101 @@ export const HelpSection: React.FC = () => {
                                              <div className="mt-4 p-4 bg-blue-50 border-2 border-blue-300 rounded-lg">
                                                   <strong>💡 Astuce:</strong> Dessinez un contour de barre sur votre sprite, puis positionnez une barre HUD dedans avec "Show Background: OFF"!
                                              </div>
+                                        </DetailBlock>
+                                   </div>
+                              </Section>
+                         )}
+
+                         {/* MUSIC & AUDIO */}
+                         {(showMusic) && (
+                              <Section
+                                   id="music"
+                                   title="🎵 Musique & Audio"
+                                   icon={<Music />}
+                                   expanded={expandMusic}
+                                   onToggle={() => toggleSection('music')}
+                                   forceExpand={isSearching && musicMatches}
+                              >
+                                   <div className="space-y-6">
+                                        <DetailBlock title="Créateur de Musique" searchQuery={searchQuery}>
+                                             <p className="mb-4">Composez vos propres musiques dans l'onglet <strong>MUSIC</strong>!</p>
+                                             <ul className="space-y-2 ml-6">
+                                                  <li>🎹 <strong>Grille</strong> : Cliquez pour activer des notes</li>
+                                                  <li>🥁 <strong>Instruments</strong> : Choisissez entre Synth, Bass, Drums...</li>
+                                                  <li>🐌 <strong>Tempo</strong> : Ajustez la vitesse</li>
+                                                  <li>💾 <strong>Sauvegarde</strong> : Vos musiques sont disponibles partout</li>
+                                             </ul>
+                                        </DetailBlock>
+
+                                        <DetailBlock title="Jouer de la Musique" searchQuery={searchQuery}>
+                                             <p className="mb-4">Pour lancer une musique dans votre jeu:</p>
+                                             <ol className="space-y-2 ml-6 list-decimal">
+                                                  <li>Allez dans <strong>RULES</strong></li>
+                                                  <li>Créez une règle (ex: START)</li>
+                                                  <li>Ajoutez l'effet <strong>PLAY MUSIC</strong></li>
+                                                  <li>Sélectionnez votre piste</li>
+                                             </ol>
+                                        </DetailBlock>
+
+                                        <DetailBlock title="Effets Sonores (SFX)" searchQuery={searchQuery}>
+                                             <p className="mb-4">Ajoutez des bruitages à vos règles:</p>
+                                             <ul className="space-y-2 ml-6">
+                                                  <li>🔊 Cliquez sur le petit <strong>Haut-Parleur</strong> sur un bloc "WHEN"</li>
+                                                  <li>🎤 <strong>Enregistrez</strong> votre voix ou un son</li>
+                                                  <li>Le son se jouera à chaque déclenchement!</li>
+                                             </ul>
+                                        </DetailBlock>
+                                   </div>
+                              </Section>
+                         )}
+
+                         {/* VARIABLES & LOGIC */}
+                         {(showVariables) && (
+                              <Section
+                                   id="variables"
+                                   title="🧮 Variables & Logique"
+                                   icon={<Hash />}
+                                   expanded={expandVariables}
+                                   onToggle={() => toggleSection('variables')}
+                                   forceExpand={isSearching && variablesMatches}
+                              >
+                                   <div className="space-y-6">
+                                        <DetailBlock title="Qu'est-ce qu'une Variable?" searchQuery={searchQuery}>
+                                             <p className="mb-4">Une variable est une boîte pour stocker un nombre. Exemples:</p>
+                                             <ul className="space-y-2 ml-6">
+                                                  <li>❤️ Vie du joueur</li>
+                                                  <li>🪙 Nombre de pièces</li>
+                                                  <li>⏱️ Temps restant</li>
+                                             </ul>
+                                        </DetailBlock>
+
+                                        <DetailBlock title="Global vs Scene" searchQuery={searchQuery}>
+                                             <div className="grid grid-cols-2 gap-4">
+                                                  <div className="p-4 bg-blue-50 border-2 border-blue-200 rounded-lg">
+                                                       <strong>🌐 GLOBAL</strong>
+                                                       <p className="text-sm">Reste la même entre les scènes (ex: Score total, Inventaire).</p>
+                                                  </div>
+                                                  <div className="p-4 bg-orange-50 border-2 border-orange-200 rounded-lg">
+                                                       <strong>📍 SCENE</strong>
+                                                       <p className="text-sm">Unique à la scène actuelle. Reset si on change de scène.</p>
+                                                  </div>
+                                             </div>
+                                        </DetailBlock>
+
+                                        <DetailBlock title="Utiliser les Variables" searchQuery={searchQuery}>
+                                             <p className="mb-4">Deux façons principales d'utiliser les variables:</p>
+                                             <ul className="space-y-4 ml-6">
+                                                  <li>
+                                                       <strong>1. MODIFIER (Action)</strong>
+                                                       <br />Utilisez l'effet <strong>SET VAR</strong> pour changer une valeur.
+                                                       <br /><em>Ex: Touche Pièce → Score + 1</em>
+                                                  </li>
+                                                  <li>
+                                                       <strong>2. VÉRIFIER (Condition)</strong>
+                                                       <br />Utilisez le déclencheur <strong>VAR?</strong> (Condition).
+                                                       <br /><em>Ex: SI Score = 10 → WIN</em>
+                                                  </li>
+                                             </ul>
                                         </DetailBlock>
                                    </div>
                               </Section>

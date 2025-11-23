@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { GameData, LevelObject, Actor, Scene } from '../types';
 import { SCENE_WIDTH, SCENE_HEIGHT, ACTOR_SIZE } from '../constants';
-import { Trash2, Square, ArrowRight, Trophy, HelpCircle, Hand, Eye, DoorOpen, Utensils, Skull, Puzzle, Ban, RotateCw, Globe, MapPin, X, Timer, ChevronsRight, Flag, Hourglass, Sparkles, Crosshair, Volume2, VolumeX, Edit3, Plus, RefreshCw, Clapperboard, ArrowDown, Repeat, Clock, Hash, PlusCircle, Calculator, Maximize, Lock, Unlock, Paintbrush, Upload, Move, Settings, Play, Save, Book } from 'lucide-react';
+import { Trash2, Square, ArrowRight, Trophy, HelpCircle, Hand, Eye, DoorOpen, Utensils, Skull, Puzzle, Ban, RotateCw, Globe, MapPin, X, Timer, ChevronsRight, Flag, Hourglass, Sparkles, Crosshair, Volume2, VolumeX, Edit3, Plus, RefreshCw, Clapperboard, ArrowDown, Repeat, Clock, Hash, PlusCircle, Calculator, Maximize, Lock, Unlock, Paintbrush, Upload, Move, Settings, Play, Save, Book, Music } from 'lucide-react';
 
 interface SceneEditorProps {
     gameData: GameData;
@@ -16,6 +16,7 @@ interface SceneEditorProps {
     onChangeTitle: (title: string) => void;
     onEditBackground: () => void;
     onUpdateBackground: (bgImage: string | undefined) => void;
+    onUpdateMusic: (musicId: string | undefined) => void;
 }
 
 export const SceneEditor: React.FC<SceneEditorProps> = ({
@@ -30,7 +31,8 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
     onOpenRules,
     onChangeTitle,
     onEditBackground,
-    onUpdateBackground
+    onUpdateBackground,
+    onUpdateMusic
 }) => {
     const [isDragOver, setIsDragOver] = useState(false);
     const [scale, setScale] = useState(1);
@@ -334,14 +336,14 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
             )}
 
             {/* LEFT SIDEBAR (Tabs) */}
-            <div className="w-16 flex flex-col gap-2 pt-8 pl-2 z-10 h-full overflow-y-auto pb-20" onClick={e => e.stopPropagation()}>
+            <div className="w-24 flex flex-col items-center gap-2 pt-8 pl-2 z-10 h-full overflow-y-auto no-scrollbar pb-24" onClick={e => e.stopPropagation()}>
                 {gameData.scenes.map((scene, index) => (
                     <button
                         key={scene.id}
                         onClick={() => onSwitchScene(scene.id)}
-                        className={`w-12 h-12 border-2 border-black flex items-center justify-center font-bold text-2xl rounded-l-lg shadow-md cursor-pointer transition-all relative left-2
+                        className={`w-12 h-12 border-2 border-black flex items-center justify-center font-bold text-2xl rounded-lg shadow-md cursor-pointer transition-all
                 ${currentSceneId === scene.id
-                                ? 'bg-[#ffcc80] w-14 hover:w-14'
+                                ? 'bg-[#ffcc80] scale-110'
                                 : 'bg-white hover:bg-gray-50 text-gray-400 hover:text-gray-600'} 
                 `}
                         data-help={`Switch to Scene ${index + 1}`}
@@ -351,7 +353,7 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
                 ))}
                 <button
                     onClick={onAddScene}
-                    className="w-12 h-12 bg-white border-2 border-black flex items-center justify-center font-bold text-2xl rounded-l-lg shadow-sm cursor-pointer hover:bg-green-50 text-gray-400 hover:text-green-500 ml-2"
+                    className="w-12 h-12 bg-white border-2 border-black flex items-center justify-center font-bold text-2xl rounded-lg shadow-sm cursor-pointer hover:bg-green-50 text-gray-400 hover:text-green-500"
                     data-help="Create a new Scene (level)"
                 >
                     +
@@ -560,22 +562,22 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
             </div>
 
             {/* RIGHT SIDEBAR (Tools) */}
-            <div className="w-24 flex flex-col items-center pt-8 gap-6 pr-4 z-10" onClick={e => e.stopPropagation()}>
+            <div className="w-32 flex flex-col items-center pt-2 gap-3 px-2 z-10 h-full overflow-y-auto no-scrollbar pb-24" onClick={e => e.stopPropagation()}>
 
                 <button onClick={onPlay} className="hover:scale-110 transition-transform" title="Play Game" data-help="Play your game!">
-                    <Play size={50} className="text-[#d4e157] fill-[#d4e157] drop-shadow-md stroke-black stroke-[2]" />
+                    <Play size={40} className="text-[#d4e157] fill-[#d4e157] drop-shadow-md stroke-black stroke-[2]" />
                 </button>
 
                 <button onClick={onSave} className="hover:scale-110 transition-transform" title="Save Game" data-help="Save your progress">
-                    <div className="bg-[#5c6bc0] p-2 rounded-md border-2 border-black shadow-md">
-                        <Save size={32} className="text-white" />
+                    <div className="bg-[#5c6bc0] p-1.5 rounded-md border-2 border-black shadow-md">
+                        <Save size={24} className="text-white" />
                     </div>
                 </button>
 
                 <button onClick={onOpenRules} className="hover:scale-110 transition-transform" title="Open Rules" data-help="Open the Rule Editor to add logic">
-                    <div className="bg-[#8d6e63] w-12 h-14 rounded-r-md border-2 border-black border-l-4 flex items-center justify-center shadow-md relative">
-                        <div className="absolute left-1 top-2 w-6 h-1 bg-[#a1887f] border border-black/30"></div>
-                        <Book size={24} className="text-white/80" />
+                    <div className="bg-[#8d6e63] w-10 h-12 rounded-r-md border-2 border-black border-l-4 flex items-center justify-center shadow-md relative">
+                        <div className="absolute left-1 top-2 w-5 h-1 bg-[#a1887f] border border-black/30"></div>
+                        <Book size={20} className="text-white/80" />
                     </div>
                 </button>
 
@@ -583,36 +585,41 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
 
                 {/* OBJECT PROPERTIES (Dynamic Panel) */}
                 {selectedInstance ? (
-                    <div className="flex flex-col gap-3 items-center animate-in slide-in-from-right w-full pb-20">
-                        <div className="w-full h-[2px] bg-black/10 mb-2"></div>
+                    <div className="flex flex-col gap-2 items-center animate-in slide-in-from-right w-full pb-20">
+                        <div className="w-full h-[2px] bg-black/10 mb-1"></div>
                         <span className="text-[10px] font-bold text-blue-500 uppercase">SELECTED</span>
 
-                        {/* SCALE SLIDER */}
-                        <div className="flex flex-col items-center w-full px-1" data-help="Change the size of the selected object">
-                            <Maximize size={16} className="text-gray-400 mb-1" />
-                            <input
-                                type="range" min="0.2" max="3.0" step="0.1"
-                                value={selectedInstance.scale || 1}
-                                onChange={(e) => updateSelectedScale(parseFloat(e.target.value))}
-                                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                            />
-                            <span className="text-[9px] font-bold text-gray-400 mt-1">{Math.round((selectedInstance.scale || 1) * 100)}%</span>
+                        {/* SCALE & LOCK ROW */}
+                        <div className="flex items-center gap-2 w-full px-1">
+                            {/* SCALE SLIDER */}
+                            <div className="flex flex-col items-center flex-1" data-help="Change the size of the selected object">
+                                <div className="flex items-center gap-1 w-full">
+                                    <Maximize size={12} className="text-gray-400" />
+                                    <input
+                                        type="range" min="0.2" max="3.0" step="0.1"
+                                        value={selectedInstance.scale || 1}
+                                        onChange={(e) => updateSelectedScale(parseFloat(e.target.value))}
+                                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                                    />
+                                </div>
+                                <span className="text-[8px] font-bold text-gray-400">{Math.round((selectedInstance.scale || 1) * 100)}%</span>
+                            </div>
+
+                            {/* LOCK TOGGLE */}
+                            <button
+                                onClick={() => toggleObjectLock(selectedInstance.id)}
+                                className={`p-1.5 rounded-full border-2 border-black shadow-sm transition-all ${selectedInstance.isLocked ? 'bg-red-100 text-red-500' : 'bg-white hover:bg-gray-100'}`}
+                                title="Lock Position"
+                                data-help="Lock this object so it can't be moved accidentally"
+                            >
+                                {selectedInstance.isLocked ? <Lock size={16} /> : <Unlock size={16} />}
+                            </button>
                         </div>
 
-                        {/* LOCK TOGGLE */}
-                        <button
-                            onClick={() => toggleObjectLock(selectedInstance.id)}
-                            className={`p-2 rounded-full border-2 border-black shadow-sm transition-all ${selectedInstance.isLocked ? 'bg-red-100 text-red-500' : 'bg-white hover:bg-gray-100'}`}
-                            title="Lock Position"
-                            data-help="Lock this object so it can't be moved accidentally"
-                        >
-                            {selectedInstance.isLocked ? <Lock size={20} /> : <Unlock size={20} />}
-                        </button>
-
                         {/* VARIABLE MONITOR CONFIG */}
-                        <div className="w-full h-[2px] bg-black/10 my-2"></div>
-                        <div className="flex flex-col gap-2 w-full px-1">
-                            <span className="text-[10px] font-bold text-gray-400 uppercase text-center">HUD / MONITOR</span>
+                        <div className="w-full h-[2px] bg-black/10 my-1"></div>
+                        <div className="flex flex-col gap-1 w-full px-1">
+                            <span className="text-[9px] font-bold text-gray-400 uppercase text-center">HUD / MONITOR</span>
 
                             {!selectedInstance.variableMonitor ? (
                                 <button
@@ -635,32 +642,35 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
                                             }
                                         } : o));
                                     }}
-                                    className="w-full py-1 bg-blue-500 text-white text-xs font-bold rounded hover:bg-blue-600"
+                                    className="w-full py-1 bg-blue-500 text-white text-[10px] font-bold rounded hover:bg-blue-600"
                                     data-help="Attach a variable display (HUD) to this object"
                                 >
                                     ATTACH VARIABLE
                                 </button>
                             ) : (
-                                <div className="flex flex-col gap-2 items-center">
-                                    <div className="text-[9px] text-blue-500 font-bold text-center mb-1 animate-pulse">
-                                        DRAG THE HUD ON THE ACTOR!
+                                <div className="flex flex-col gap-1 items-center">
+                                    <div className="text-[8px] text-blue-500 font-bold text-center animate-pulse">
+                                        DRAG HUD ON ACTOR
                                     </div>
 
-                                    <button
-                                        onClick={() => setHudConfigModal(selectedInstance.id)}
-                                        className="w-full py-2 bg-white border-2 border-black shadow-[2px_2px_0px_rgba(0,0,0,0.2)] text-xs font-bold rounded hover:bg-gray-50 flex items-center justify-center gap-2"
-                                        data-help="Configure how the variable is displayed"
-                                    >
-                                        <Settings size={14} />
-                                        CONFIGURE HUD
-                                    </button>
+                                    <div className="flex gap-1 w-full">
+                                        <button
+                                            onClick={() => setHudConfigModal(selectedInstance.id)}
+                                            className="flex-1 py-1 bg-white border-2 border-black shadow-[1px_1px_0px_rgba(0,0,0,0.2)] text-[10px] font-bold rounded hover:bg-gray-50 flex items-center justify-center gap-1"
+                                            data-help="Configure how the variable is displayed"
+                                        >
+                                            <Settings size={12} />
+                                            CONFIG
+                                        </button>
 
-                                    <button
-                                        onClick={() => onUpdateCurrentScene(levelObjects.map(o => o.id === selectedInstance.id ? { ...o, variableMonitor: undefined } : o))}
-                                        className="w-full py-1 bg-red-100 text-red-500 text-[10px] font-bold rounded hover:bg-red-200 mt-1"
-                                    >
-                                        REMOVE
-                                    </button>
+                                        <button
+                                            onClick={() => onUpdateCurrentScene(levelObjects.map(o => o.id === selectedInstance.id ? { ...o, variableMonitor: undefined } : o))}
+                                            className="px-2 py-1 bg-red-100 text-red-500 text-[10px] font-bold rounded hover:bg-red-200"
+                                            title="Remove HUD"
+                                        >
+                                            <Trash2 size={14} />
+                                        </button>
+                                    </div>
                                 </div>
                             )}
                         </div>
@@ -668,11 +678,11 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
                         {/* DELETE */}
                         <button
                             onClick={deleteSelectedObject}
-                            className="p-2 rounded-full border-2 border-black bg-white text-red-500 shadow-sm hover:bg-red-50 transition-all mt-2"
+                            className="p-2 rounded-full border-2 border-black bg-white text-red-500 shadow-sm hover:bg-red-50 transition-all mt-1"
                             title="Delete Object"
                             data-help="Delete this object"
                         >
-                            <Trash2 size={20} />
+                            <Trash2 size={18} />
                         </button>
                     </div>
                 ) : (
@@ -680,42 +690,65 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
                     <div className="flex flex-col gap-2 items-center animate-in slide-in-from-right">
                         <span className="text-[10px] font-bold text-gray-400">STAGE</span>
 
-                        <button onClick={onEditBackground} className="sketch-btn w-10 h-10 bg-white hover:bg-purple-50" title="Draw Background" data-help="Draw a background for this scene">
-                            <Paintbrush size={20} className="text-purple-500" />
-                        </button>
-
-                        <label className="sketch-btn w-10 h-10 bg-white hover:bg-blue-50 cursor-pointer" title="Upload Background" data-help="Upload an image as background">
-                            <Upload size={20} className="text-blue-500" />
-                            <input type="file" accept="image/*" className="hidden" onChange={handleBackgroundUpload} />
-                        </label>
-
-                        {currentScene.backgroundImage && (
-                            <button onClick={() => onUpdateBackground(undefined)} className="sketch-btn w-10 h-10 bg-white hover:bg-red-50" title="Clear Background">
-                                <Trash2 size={20} className="text-red-500" />
+                        <div className="flex gap-2 justify-center w-full flex-wrap">
+                            <button onClick={onEditBackground} className="sketch-btn w-10 h-10 bg-white hover:bg-purple-50" title="Draw Background" data-help="Draw a background for this scene">
+                                <Paintbrush size={20} className="text-purple-500" />
                             </button>
-                        )}
 
-                        <div className="w-full h-[2px] bg-black/10 my-2"></div>
+                            <label className="sketch-btn w-10 h-10 bg-white hover:bg-blue-50 cursor-pointer" title="Upload Background" data-help="Upload an image as background">
+                                <Upload size={20} className="text-blue-500" />
+                                <input type="file" accept="image/*" className="hidden" onChange={handleBackgroundUpload} />
+                            </label>
 
-                        <button
-                            onClick={() => setIsLockMode(!isLockMode)}
-                            className={`hover:scale-110 transition-transform ${isLockMode ? 'opacity-100' : 'opacity-50'}`}
-                            title="Auto-Lock new items"
-                            data-help="Toggle Auto-Lock: New items will be locked in place"
-                        >
-                            {isLockMode ? <Lock size={32} /> : <Unlock size={32} />}
-                        </button>
+                            {currentScene.backgroundImage && (
+                                <button onClick={() => onUpdateBackground(undefined)} className="sketch-btn w-10 h-10 bg-white hover:bg-red-50" title="Clear Background">
+                                    <Trash2 size={20} className="text-red-500" />
+                                </button>
+                            )}
+                        </div>
 
-                        {/* Selected Actor Preview (Paint Brush) */}
-                        <div className="mt-4 flex flex-col items-center">
-                            <div className="w-16 h-16 bg-white border-[3px] border-black rounded-lg flex items-center justify-center shadow-[2px_2px_0px_rgba(0,0,0,0.2)] overflow-hidden">
-                                {selectedActor ? (
-                                    <img src={selectedActor.imageData} className="w-full h-full object-contain p-1" />
-                                ) : (
-                                    <span className="text-gray-300 text-[8px]">None</span>
-                                )}
+                        <div className="w-full h-[2px] bg-black/10 my-1"></div>
+
+                        {/* MUSIC SELECTOR */}
+                        <div className="w-full px-1 mb-1">
+                            <span className="text-[10px] font-bold text-gray-400 uppercase ml-1">MUSIC</span>
+                            <div className="relative">
+                                <select
+                                    value={currentScene.backgroundMusicId || ''}
+                                    onChange={(e) => onUpdateMusic(e.target.value || undefined)}
+                                    className="w-full p-2 pl-8 bg-white border-2 border-black rounded-lg font-bold text-xs appearance-none cursor-pointer hover:bg-purple-50 transition-colors shadow-sm"
+                                >
+                                    <option value="">None</option>
+                                    {gameData.music?.map(track => (
+                                        <option key={track.id} value={track.id}>{track.name}</option>
+                                    ))}
+                                </select>
+                                <Music size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-purple-500 pointer-events-none" />
                             </div>
-                            <span className="text-[8px] font-bold mt-1 text-gray-400 uppercase">BRUSH</span>
+                        </div>
+
+                        <div className="w-full h-[2px] bg-black/10 my-1"></div>
+
+                        <div className="flex items-center justify-center gap-4 w-full">
+                            <button
+                                onClick={() => setIsLockMode(!isLockMode)}
+                                className={`hover:scale-110 transition-transform ${isLockMode ? 'opacity-100' : 'opacity-50'}`}
+                                title="Auto-Lock new items"
+                                data-help="Toggle Auto-Lock: New items will be locked in place"
+                            >
+                                {isLockMode ? <Lock size={24} /> : <Unlock size={24} />}
+                            </button>
+
+                            {/* Selected Actor Preview (Paint Brush) */}
+                            <div className="flex flex-col items-center">
+                                <div className="w-12 h-12 bg-white border-[3px] border-black rounded-lg flex items-center justify-center shadow-[2px_2px_0px_rgba(0,0,0,0.2)] overflow-hidden">
+                                    {selectedActor ? (
+                                        <img src={selectedActor.imageData} className="w-full h-full object-contain p-1" />
+                                    ) : (
+                                        <span className="text-gray-300 text-[8px]">None</span>
+                                    )}
+                                </div>
+                            </div>
                         </div>
                     </div>
                 )}

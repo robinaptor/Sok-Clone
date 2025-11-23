@@ -24,6 +24,8 @@ export interface GlobalVariable {
   id: string;
   name: string;
   initialValue: number;
+  icon?: string; // DataURL for the icon (e.g. Heart)
+  isIconMode?: boolean; // If true, render as repeating icons instead of number
   scope?: 'GLOBAL' | string; // 'GLOBAL' or specific scene ID
 }
 
@@ -60,7 +62,8 @@ export enum InteractionType {
   NOTHING = 'NOTHING',
   THEN = 'THEN', // Sequence / Delay modifier
   WAIT = 'WAIT', // NEW: Pause execution
-  STEP = 'STEP' // NEW: Move one step
+  STEP = 'STEP', // NEW: Move one step
+  PLAY_MUSIC = 'PLAY_MUSIC' // NEW: Trigger music playback
 }
 
 export interface RuleEffect {
@@ -181,11 +184,21 @@ export interface LevelObject {
   activeAnimation?: ActiveAnimation;
 }
 
+export interface MusicTrack {
+  id: string;
+  name: string;
+  data: string; // Base64 or Blob URL
+  type: 'UPLOAD' | 'GENERATED';
+  sequence?: { note: number, time: number }[]; // For generated music
+}
+
 export interface Scene {
   id: string;
+  name?: string;
   objects: LevelObject[];
   backgroundImage?: string; // Custom background (Base64)
   backgroundFrames?: string[]; // Animated background
+  backgroundMusicId?: string; // New field
 }
 
 export interface GameData {
@@ -197,6 +210,7 @@ export interface GameData {
   scenes: Scene[];
   sounds: Sound[]; // Library of sounds
   variables: GlobalVariable[]; // NEW: Global variables
+  music?: MusicTrack[]; // NEW: Music tracks
   backgroundColor: string;
 }
 

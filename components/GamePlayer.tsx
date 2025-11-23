@@ -161,7 +161,145 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
     // SHAKE STATE
     const [shakeIntensity, setShakeIntensity] = useState(0);
 
-    // PARTICLES STATE
+    // --- MUSIC PLAYBACK ---
+    const musicRef = useRef<HTMLAudioElement | null>(null);
+    const currentMusicIdRef = useRef<string | null>(null);
+
+    useEffect(() => {
+        const scene = gameData.scenes.find(s => s.id === currentSceneId);
+        const musicId = scene?.backgroundMusicId;
+
+        // Only update if the music ID has actually changed
+        if (musicId !== currentMusicIdRef.current) {
+            // Stop old music
+            if (musicRef.current) {
+                musicRef.current.pause();
+                musicRef.current = null;
+            }
+
+            currentMusicIdRef.current = musicId || null;
+
+            if (musicId) {
+                const track = gameData.music?.find(t => t.id === musicId);
+                if (track && track.type === 'UPLOAD') {
+                    const audio = new Audio(track.data);
+                    audio.loop = true;
+                    audio.volume = 0.5; // Default volume
+                    audio.play().catch(e => console.error("Music play failed", e));
+                    musicRef.current = audio;
+                } else if (track && track.type === 'GENERATED' && track.sequence) {
+                    // GENERATED MUSIC PLAYBACK
+                    console.log("Starting generated music playback for:", track.name, "Sequence Length:", track.sequence?.length);
+                    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+                    const ctx = new AudioContextClass();
+
+                    // DEBUG STATE
+                    const updateDebugInfo = () => {
+                        if (document.getElementById('debug-audio-state')) {
+                            document.getElementById('debug-audio-state')!.innerText = ctx.state;
+                        }
+                    };
+                    setInterval(updateDebugInfo, 500);
+
+                    // Resume context strategy
+                    const resumeContext = () => {
+                        if (ctx.state === 'suspended') {
+                            ctx.resume().then(() => {
+                                console.log("AudioContext resumed successfully");
+                                updateDebugInfo();
+                            }).catch(e => console.error("Failed to resume AudioContext:", e));
+                        }
+                    };
+
+                    resumeContext();
+
+                    // Fallback: Try to resume on any user interaction if still suspended
+                    const resumeOnInteraction = () => {
+                        if (ctx.state === 'suspended') {
+                            resumeContext();
+                        }
+                    };
+
+                    document.addEventListener('click', resumeOnInteraction);
+                    document.addEventListener('keydown', resumeOnInteraction);
+                    document.addEventListener('touchstart', resumeOnInteraction);
+
+                    const tempo = 120;
+                    const secondsPerBeat = 60.0 / tempo;
+                    const stepDuration = 0.25 * secondsPerBeat; // 16th notes
+                    const lookahead = 25.0; // ms
+                    const scheduleAheadTime = 0.1; // s
+
+                    let nextNoteTime = ctx.currentTime;
+                    let currentStep = 0;
+                    const steps = 16;
+                    let isPlaying = true;
+
+                    // Scheduler function
+                    const scheduler = () => {
+                        if (!isPlaying) return;
+
+                        while (nextNoteTime < ctx.currentTime + scheduleAheadTime) {
+                            // Schedule notes for current step
+                            const notesInStep = track.sequence!.filter(n => n.time === currentStep);
+                            notesInStep.forEach(note => {
+                                const osc = ctx.createOscillator();
+                                const gain = ctx.createGain();
+                                osc.connect(gain);
+                                gain.connect(ctx.destination);
+
+                                // Frequency calculation
+                                const baseFreq = 261.63; // C4
+                                const freq = baseFreq * Math.pow(2, note.note / 12);
+                                osc.frequency.value = freq;
+                                osc.type = 'square';
+
+                                gain.gain.setValueAtTime(0.2, nextNoteTime); // INCREASED GAIN
+                                gain.gain.linearRampToValueAtTime(0.001, nextNoteTime + 0.2);
+
+                                osc.start(nextNoteTime);
+                                osc.stop(nextNoteTime + 0.2);
+                            });
+
+                            // Advance step
+                            nextNoteTime += stepDuration;
+                            currentStep = (currentStep + 1) % steps;
+                        }
+
+                        // Keep scheduling
+                        if (isPlaying) {
+                            setTimeout(scheduler, lookahead);
+                        }
+                    };
+
+                    scheduler();
+                    // Store context in ref to close it later
+                    (musicRef as any).current = {
+                        pause: () => {
+                            isPlaying = false;
+                            document.removeEventListener('click', resumeOnInteraction);
+                            document.removeEventListener('keydown', resumeOnInteraction);
+                            document.removeEventListener('touchstart', resumeOnInteraction);
+                            ctx.close();
+                        },
+                        play: () => { }
+                    };
+                }
+            }
+        }
+    }, [currentSceneId, gameData.scenes, gameData.music]);
+
+    // Cleanup on unmount
+    useEffect(() => {
+        return () => {
+            if (musicRef.current) {
+                musicRef.current.pause();
+                musicRef.current = null;
+            }
+        };
+    }, []);
+
+    // --- PHYSICS STATE ---
     const [particles, setParticles] = useState<{ id: string, x: number, y: number, color: string, vx: number, vy: number, life: number, size: number, type: 'CONFETTI' | 'EXPLOSION' | 'SMOKE' | 'RAIN' | 'SPARKLES', actorId?: string }[]>([]);
 
     const [status, setStatus] = useState<'LOADING' | 'READY' | 'PLAYING' | 'WON' | 'LOST' | 'TRANSITION'>('LOADING');
@@ -606,6 +744,106 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                 }
 
                 switch (effect.type) {
+                    case InteractionType.PLAY_MUSIC:
+                        if (effect.spawnActorId) { // spawnActorId holds the musicId
+                            const musicId = effect.spawnActorId;
+                            const track = gameData.music?.find(t => t.id === musicId);
+
+                            if (track) {
+                                // Stop current music
+                                if (musicRef.current) {
+                                    musicRef.current.pause();
+                                    musicRef.current = null;
+                                }
+                                currentMusicIdRef.current = musicId;
+
+                                // Play new music (Reusing logic from useEffect)
+                                if (track.type === 'UPLOAD') {
+                                    const audio = new Audio(track.data);
+                                    audio.loop = true;
+                                    audio.volume = 0.5;
+                                    audio.play().catch(e => console.error("Music play failed", e));
+                                    musicRef.current = audio;
+                                } else if (track.type === 'GENERATED' && track.sequence) {
+                                    // GENERATED MUSIC PLAYBACK LOGIC
+                                    console.log("Starting generated music playback (Effect) for:", track.name);
+                                    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+                                    const ctx = new AudioContextClass();
+
+                                    // DEBUG STATE
+                                    const updateDebugInfo = () => {
+                                        if (document.getElementById('debug-audio-state')) {
+                                            document.getElementById('debug-audio-state')!.innerText = ctx.state;
+                                        }
+                                    };
+                                    setInterval(updateDebugInfo, 500);
+
+                                    const resumeContext = () => {
+                                        if (ctx.state === 'suspended') {
+                                            ctx.resume().then(() => {
+                                                console.log("AudioContext resumed successfully");
+                                                updateDebugInfo();
+                                            });
+                                        }
+                                    };
+                                    resumeContext();
+
+                                    const tempo = 120;
+                                    const secondsPerBeat = 60.0 / tempo;
+                                    const stepDuration = 0.25 * secondsPerBeat;
+                                    const lookahead = 25.0;
+                                    const scheduleAheadTime = 0.1;
+
+                                    let nextNoteTime = ctx.currentTime;
+                                    let currentStep = 0;
+                                    const steps = 16;
+                                    let isPlaying = true;
+
+                                    const scheduler = () => {
+                                        if (!isPlaying) return;
+
+                                        while (nextNoteTime < ctx.currentTime + scheduleAheadTime) {
+                                            const notesInStep = track.sequence!.filter(n => n.time === currentStep);
+                                            notesInStep.forEach(note => {
+                                                const osc = ctx.createOscillator();
+                                                const gain = ctx.createGain();
+                                                osc.connect(gain);
+                                                gain.connect(ctx.destination);
+
+                                                const baseFreq = 261.63;
+                                                const freq = baseFreq * Math.pow(2, note.note / 12);
+                                                osc.frequency.value = freq;
+                                                osc.type = 'square';
+
+                                                gain.gain.setValueAtTime(0.2, nextNoteTime);
+                                                gain.gain.linearRampToValueAtTime(0.001, nextNoteTime + 0.2);
+
+                                                osc.start(nextNoteTime);
+                                                osc.stop(nextNoteTime + 0.2);
+                                            });
+
+                                            nextNoteTime += stepDuration;
+                                            currentStep = (currentStep + 1) % steps;
+                                        }
+
+                                        if (isPlaying) {
+                                            setTimeout(scheduler, lookahead);
+                                        }
+                                    };
+
+                                    scheduler();
+                                    (musicRef as any).current = {
+                                        pause: () => {
+                                            isPlaying = false;
+                                            ctx.close();
+                                        },
+                                        play: () => { }
+                                    };
+                                }
+                            }
+                        }
+                        break;
+
                     case InteractionType.WIN:
                         setStatus('WON');
                         previousActionDuration = 0;
@@ -1516,7 +1754,32 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                             </div>
                         ))}
                         {/* UI OVERLAY */}
-                        {/* VARIABLES HUD REMOVED - NOW ATTACHED TO OBJECTS */}
+                        <div className="absolute top-4 left-4 flex flex-col gap-2 z-40 pointer-events-none">
+                            {gameData.variables?.map(v => {
+                                if (!v.isIconMode) return null;
+                                const val = runtimeVariables[v.id] ?? v.initialValue;
+                                const max = 10; // Cap at 10 for now to prevent overflow
+                                const displayVal = Math.max(0, Math.min(val, max));
+
+                                return (
+                                    <div key={v.id} className="flex items-center gap-1 animate-in slide-in-from-left-4 fade-in duration-300">
+                                        {Array.from({ length: displayVal }).map((_, i) => (
+                                            <div key={i} className="w-8 h-8 drop-shadow-md">
+                                                {v.icon ? (
+                                                    <img src={v.icon} className="w-full h-full object-contain" />
+                                                ) : (
+                                                    <div className="w-full h-full text-red-500">
+                                                        <svg viewBox="0 0 24 24" fill="currentColor" className="w-full h-full">
+                                                            <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
+                                                        </svg>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                );
+                            })}
+                        </div>
 
                         {status === 'LOADING' && (
                             <div className="absolute inset-0 bg-white z-50 flex flex-col items-center justify-center">
