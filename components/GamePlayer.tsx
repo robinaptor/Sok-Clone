@@ -696,6 +696,28 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                         }));
                         previousActionDuration = 0;
                         break;
+                    case InteractionType.STEP:
+                        setObjects(prev => prev.map(o => {
+                            if (o.id === targetId) {
+                                const stepSize = ACTOR_SIZE; // Move one full tile/actor size
+                                let nx = o.x;
+                                let ny = o.y;
+
+                                if (effect.direction === 'UP') ny -= stepSize;
+                                if (effect.direction === 'DOWN') ny += stepSize;
+                                if (effect.direction === 'LEFT') nx -= stepSize;
+                                if (effect.direction === 'RIGHT') nx += stepSize;
+
+                                // Bounds check
+                                nx = Math.max(0, Math.min(nx, SCENE_WIDTH - ACTOR_SIZE));
+                                ny = Math.max(0, Math.min(ny, SCENE_HEIGHT - ACTOR_SIZE));
+
+                                return { ...o, x: nx, y: ny };
+                            }
+                            return o;
+                        }));
+                        previousActionDuration = 200; // Small delay for visual feedback
+                        break;
                     case InteractionType.SHAKE:
                         setShakeIntensity(20); // Shake hard!
                         setTimeout(() => setShakeIntensity(0), 500);

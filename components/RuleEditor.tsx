@@ -25,8 +25,8 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
             icon: <Gamepad2 size={24} className="text-purple-600" />,
             description: 'Move Left/Right & Jump',
             rules: [
-                { trigger: 'KEY_PRESS', key: 'RIGHT', effects: [{ type: 'PUSH', direction: 'RIGHT', force: 1 }] },
-                { trigger: 'KEY_PRESS', key: 'LEFT', effects: [{ type: 'PUSH', direction: 'LEFT', force: 1 }] },
+                { trigger: 'KEY_PRESS', key: 'RIGHT', effects: [{ type: 'STEP', direction: 'RIGHT', force: 1 }] },
+                { trigger: 'KEY_PRESS', key: 'LEFT', effects: [{ type: 'STEP', direction: 'LEFT', force: 1 }] },
                 { trigger: 'KEY_PRESS', key: 'SPACE', effects: [{ type: 'JUMP', force: 12 }] },
             ]
         },
@@ -36,10 +36,10 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
             icon: <Map size={24} className="text-blue-600" />,
             description: 'Move in 4 directions',
             rules: [
-                { trigger: 'KEY_PRESS', key: 'UP', effects: [{ type: 'PUSH', direction: 'UP', force: 1 }] },
-                { trigger: 'KEY_PRESS', key: 'DOWN', effects: [{ type: 'PUSH', direction: 'DOWN', force: 1 }] },
-                { trigger: 'KEY_PRESS', key: 'LEFT', effects: [{ type: 'PUSH', direction: 'LEFT', force: 1 }] },
-                { trigger: 'KEY_PRESS', key: 'RIGHT', effects: [{ type: 'PUSH', direction: 'RIGHT', force: 1 }] },
+                { trigger: 'KEY_PRESS', key: 'UP', effects: [{ type: 'STEP', direction: 'UP', force: 1 }] },
+                { trigger: 'KEY_PRESS', key: 'DOWN', effects: [{ type: 'STEP', direction: 'DOWN', force: 1 }] },
+                { trigger: 'KEY_PRESS', key: 'LEFT', effects: [{ type: 'STEP', direction: 'LEFT', force: 1 }] },
+                { trigger: 'KEY_PRESS', key: 'RIGHT', effects: [{ type: 'STEP', direction: 'RIGHT', force: 1 }] },
             ]
         },
         {
@@ -1904,6 +1904,40 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                                         <div className="text-[8px] bg-green-100 px-2 rounded-full max-w-[70px] truncate mt-1">
                                                             {effect.spawnActorId ? 'TARGET' : 'HERO'}
                                                         </div>
+                                                    </div>
+                                                    <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center hover:scale-110 z-10"><X size={14} /></button>
+                                                </div>
+                                            );
+                                        }
+
+                                        // STEP EFFECT
+                                        if (effect.type === InteractionType.STEP) {
+                                            return (
+                                                <div key={idx} className="relative group shrink-0">
+                                                    <div className="flex flex-col items-center bg-white border-2 border-blue-500 rounded-lg p-2 shadow-sm h-[90px] min-w-[80px] justify-center gap-1">
+                                                        <span className="text-[10px] font-bold text-blue-600 uppercase">STEP</span>
+                                                        <button
+                                                            onClick={() => {
+                                                                const dirs = ['UP', 'RIGHT', 'DOWN', 'LEFT'];
+                                                                const currentIdx = dirs.indexOf(effect.direction || 'RIGHT');
+                                                                const nextDir = dirs[(currentIdx + 1) % 4] as any;
+
+                                                                onUpdateRules(gameData.rules.map(r => {
+                                                                    if (r.id === rule.id) {
+                                                                        const newEffects = [...r.effects];
+                                                                        newEffects[idx] = { ...newEffects[idx], direction: nextDir };
+                                                                        return { ...r, effects: newEffects };
+                                                                    }
+                                                                    return r;
+                                                                }));
+                                                            }}
+                                                            className="w-10 h-10 border-2 border-black rounded bg-blue-100 flex items-center justify-center hover:bg-blue-200 transition-colors"
+                                                        >
+                                                            {(!effect.direction || effect.direction === 'UP') && <ArrowDown size={24} className="text-blue-600 rotate-180" />}
+                                                            {effect.direction === 'DOWN' && <ArrowDown size={24} className="text-blue-600" />}
+                                                            {effect.direction === 'LEFT' && <ArrowRight size={24} className="text-blue-600 rotate-180" />}
+                                                            {effect.direction === 'RIGHT' && <ArrowRight size={24} className="text-blue-600" />}
+                                                        </button>
                                                     </div>
                                                     <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center hover:scale-110 z-10"><X size={14} /></button>
                                                 </div>

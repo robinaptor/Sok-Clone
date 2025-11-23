@@ -65,6 +65,7 @@ export const INTERACTION_LABELS: Record<InteractionType, string> = {
   [InteractionType.PUSH]: 'PUSH',
   [InteractionType.MOVE]: 'MOVES', // NEW
   [InteractionType.JUMP]: 'JUMPS',
+  [InteractionType.STEP]: 'STEPS', // NEW
 };
 
 // NEW: Magnet Definitions categorized
@@ -81,6 +82,7 @@ export const TRIGGER_MAGNETS = [
 export const EFFECT_MAGNETS = [
   { type: InteractionType.CHASE, label: 'CHASE', color: '#4ade80', icon: 'footprints' }, // Green (Replaces Step)
   { type: InteractionType.MOVE, label: 'MOVE', color: '#3b82f6', icon: 'map' }, // Blue (Path)
+  { type: InteractionType.STEP, label: 'STEP', color: '#3b82f6', icon: 'arrow-right' }, // Blue (Step)
   { type: InteractionType.SHAKE, label: 'SHAKE', color: '#f87171', icon: 'activity' }, // Red (Visual Juice)
   { type: InteractionType.JUMP, label: 'JUMP', color: '#10b981', icon: 'arrow-down-circle' }, // Emerald
 

@@ -59,7 +59,8 @@ export enum InteractionType {
   JUMP = 'JUMP', // NEW: Jump effect
   NOTHING = 'NOTHING',
   THEN = 'THEN', // Sequence / Delay modifier
-  WAIT = 'WAIT' // NEW: Pause execution
+  WAIT = 'WAIT', // NEW: Pause execution
+  STEP = 'STEP' // NEW: Move one step
 }
 
 export interface RuleEffect {
