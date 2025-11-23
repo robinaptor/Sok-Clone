@@ -32,6 +32,58 @@ const App: React.FC = () => {
   const [showContextualHelp, setShowContextualHelp] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
 
+  const [history, setHistory] = useState<GameData[]>([]);
+  const [future, setFuture] = useState<GameData[]>([]);
+
+  // --- UNDO / REDO LOGIC ---
+  const updateGameData = (update: React.SetStateAction<GameData>, addToHistory = true) => {
+    if (addToHistory) {
+      setHistory(prev => [...prev, gameData]);
+      setFuture([]); // Clear redo stack on new action
+    }
+    setGameData(update);
+  };
+
+  const undo = () => {
+    if (history.length === 0) return;
+    const previous = history[history.length - 1];
+    const newHistory = history.slice(0, -1);
+
+    setFuture(prev => [gameData, ...prev]);
+    setHistory(newHistory);
+    setGameData(previous);
+
+    // Also update selection if needed? Maybe not strictly necessary but good UX
+    // For now, keep it simple.
+  };
+
+  const redo = () => {
+    if (future.length === 0) return;
+    const next = future[0];
+    const newFuture = future.slice(1);
+
+    setHistory(prev => [...prev, gameData]);
+    setFuture(newFuture);
+    setGameData(next);
+  };
+
+  // Keyboard Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          redo();
+        } else {
+          undo();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [history, future, gameData]);
+
+
   // --- STORAGE LOGIC ---
   useEffect(() => {
     // Load project list on mount
@@ -68,7 +120,11 @@ const App: React.FC = () => {
 
     setSavedProjects(newProjects);
     localStorage.setItem('sok_maker_projects', JSON.stringify(newProjects));
-    setGameData(updatedProject); // Update state to reflect saved time
+    // Don't add to history for auto-saves or manual saves, 
+    // but we do want to update the timestamp in the current state.
+    // Actually, saving shouldn't change the game state other than timestamp.
+    // Let's just update silently.
+    setGameData(updatedProject);
   };
 
   const deleteProject = (id: string) => {
@@ -92,6 +148,8 @@ const App: React.FC = () => {
     };
     // Reset selection
     setGameData(newProject);
+    setHistory([]); // Clear history for new project
+    setFuture([]);
     setSelectedActorId(newProject.actors[0].id);
     setCurrentSceneId(newProject.scenes[0].id);
     setEditingSceneBackgroundId(null);
@@ -100,6 +158,8 @@ const App: React.FC = () => {
 
   const handleLoadProject = (project: GameData) => {
     setGameData(project);
+    setHistory([]); // Clear history for loaded project
+    setFuture([]);
     setSelectedActorId(project.actors[0]?.id || '');
     setCurrentSceneId(project.scenes[0]?.id || 'scene_1');
     setEditingSceneBackgroundId(null);
@@ -159,7 +219,7 @@ const App: React.FC = () => {
       imageData: canvas.toDataURL()
     };
 
-    setGameData(prev => ({ ...prev, actors: [...prev.actors, newActor] }));
+    updateGameData(prev => ({ ...prev, actors: [...prev.actors, newActor] }));
     setSelectedActorId(newActor.id);
     setEditingSceneBackgroundId(null);
     setShowCreationWizard(false);
@@ -190,7 +250,7 @@ const App: React.FC = () => {
       }));
 
       // Add to Game Data
-      setGameData(prev => ({
+      updateGameData(prev => ({
         ...prev,
         actors: [...prev.actors, actor],
         rules: [...prev.rules, ...newRules],
@@ -238,7 +298,7 @@ const App: React.FC = () => {
       imageData: canvas.toDataURL()
     };
 
-    setGameData(prev => ({ ...prev, actors: [...prev.actors, newActor] }));
+    updateGameData(prev => ({ ...prev, actors: [...prev.actors, newActor] }));
     setSelectedActorId(newActor.id);
     setEditingSceneBackgroundId(null);
     if (view !== ToolMode.DRAW) setView(ToolMode.DRAW);
@@ -248,7 +308,7 @@ const App: React.FC = () => {
   const updateSprite = (updated: Actor) => {
     if (editingSceneBackgroundId) {
       // We are editing a Scene Background
-      setGameData(prev => ({
+      updateGameData(prev => ({
         ...prev,
         scenes: prev.scenes.map(s => {
           if (s.id === editingSceneBackgroundId) {
@@ -263,7 +323,7 @@ const App: React.FC = () => {
       }));
     } else {
       // We are editing a standard Actor
-      setGameData(prev => ({
+      updateGameData(prev => ({
         ...prev,
         actors: prev.actors.map(a => a.id === updated.id ? updated : a)
       }));
@@ -273,7 +333,7 @@ const App: React.FC = () => {
   const deleteActor = (id: string) => {
     // If we are in BG edit mode, "Delete" just clears the BG
     if (editingSceneBackgroundId) {
-      setGameData(prev => ({
+      updateGameData(prev => ({
         ...prev,
         scenes: prev.scenes.map(s => {
           if (s.id === editingSceneBackgroundId) {
@@ -287,7 +347,7 @@ const App: React.FC = () => {
 
     if (gameData.actors.length <= 1) return; // Keep at least one
 
-    setGameData(prev => ({
+    updateGameData(prev => ({
       ...prev,
       actors: prev.actors.filter(a => a.id !== id),
       scenes: prev.scenes.map(scene => ({
@@ -303,7 +363,7 @@ const App: React.FC = () => {
   // --- SCENE LOGIC ---
   const addScene = () => {
     const newId = `scene_${gameData.scenes.length + 1}`;
-    setGameData(prev => ({
+    updateGameData(prev => ({
       ...prev,
       scenes: [...prev.scenes, { id: newId, objects: [] }]
     }));
@@ -311,7 +371,7 @@ const App: React.FC = () => {
   };
 
   const updateCurrentSceneLevel = (objects: LevelObject[]) => {
-    setGameData(prev => ({
+    updateGameData(prev => ({
       ...prev,
       scenes: prev.scenes.map(s => s.id === currentSceneId ? { ...s, objects } : s)
     }));
@@ -333,7 +393,7 @@ const App: React.FC = () => {
   };
 
   const handleUpdateBackground = (bgImage: string | undefined) => {
-    setGameData(prev => ({
+    updateGameData(prev => ({
       ...prev,
       scenes: prev.scenes.map(s => {
         if (s.id === currentSceneId) {
@@ -350,10 +410,10 @@ const App: React.FC = () => {
     }));
   };
 
-  const updateRules = (rules: Rule[]) => setGameData(prev => ({ ...prev, rules }));
-  const updateSounds = (sounds: Sound[]) => setGameData(prev => ({ ...prev, sounds }));
-  const updateVariables = (variables: GlobalVariable[]) => setGameData(prev => ({ ...prev, variables }));
-  const updateTitle = (title: string) => setGameData(prev => ({ ...prev, title }));
+  const updateRules = (rules: Rule[]) => updateGameData(prev => ({ ...prev, rules }));
+  const updateSounds = (sounds: Sound[]) => updateGameData(prev => ({ ...prev, sounds }));
+  const updateVariables = (variables: GlobalVariable[]) => updateGameData(prev => ({ ...prev, variables }));
+  const updateTitle = (title: string) => updateGameData(prev => ({ ...prev, title }));
 
   // --- AI ---
   const handleGenerate = async () => {

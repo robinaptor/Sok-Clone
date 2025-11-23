@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { GameData, Rule, InteractionType, RuleTrigger, Sound, GlobalVariable, RuleEffect } from '../types';
 import { TRIGGER_MAGNETS, EFFECT_MAGNETS, SCENE_WIDTH, SCENE_HEIGHT } from '../constants';
-import { X, Plus, Play, Save, Edit2, Edit3, Trash2, Eye, Hand, Flag, Clock, Square, Utensils, ArrowRight, Trophy, DoorOpen, Skull, Zap, Ban, Timer, Sparkles, RefreshCw, Clapperboard, Hash, PlusCircle, MessageCircle, MessageSquare, Keyboard, Footprints, Activity, Crosshair, Target, ArrowDownCircle, Hourglass, Puzzle, Globe, MapPin, Volume2, VolumeX, Mic, Upload, Download, Info, HelpCircle, Settings, Repeat, ChevronsRight, Dices, RotateCw, ArrowDown, Calculator, Map, Gamepad2, Ghost, Coins, AlertTriangle } from 'lucide-react';
+import { X, Plus, Play, Save, Edit2, Edit3, Trash2, Eye, Hand, Flag, Clock, Square, Utensils, ArrowRight, Trophy, DoorOpen, Skull, Zap, Ban, Timer, Sparkles, RefreshCw, Clapperboard, Hash, PlusCircle, MessageCircle, MessageSquare, Keyboard, Footprints, Activity, Crosshair, Target, ArrowDownCircle, Hourglass, Puzzle, Globe, MapPin, Volume2, VolumeX, Mic, Upload, Download, Info, HelpCircle, Settings, Repeat, ChevronsRight, Dices, RotateCw, ArrowDown, Calculator, Map, Gamepad2, Ghost, Coins, AlertTriangle, Copy, Clipboard } from 'lucide-react';
 import { SoundRecorder } from './SoundRecorder';
 
 interface RuleEditorProps {
@@ -1543,6 +1543,27 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                     <button onClick={() => setViewScope('LOCAL')} className={`flex items-center gap-2 px-6 py-2 rounded-full font-bold border-2 transition-all ${viewScope === 'LOCAL' ? 'bg-orange-500 text-white border-black scale-105 shadow-md' : 'bg-white text-gray-400 border-gray-300 hover:bg-gray-50'}`}>
                         <MapPin size={20} /> THIS SCENE RULES
                     </button>
+                    <div className="w-[1px] h-8 bg-gray-300 mx-2"></div>
+                    <button
+                        onClick={() => {
+                            const stored = localStorage.getItem('sok_maker_clipboard_rule');
+                            if (stored) {
+                                try {
+                                    const copiedRule = JSON.parse(stored);
+                                    const newRule = {
+                                        ...copiedRule,
+                                        id: Math.random().toString(36).substr(2, 9),
+                                        scope: viewScope // Paste into current scope
+                                    };
+                                    onUpdateRules([...gameData.rules, newRule]);
+                                } catch (e) { console.error("Failed to paste rule", e); }
+                            }
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 rounded-full font-bold border-2 bg-white text-purple-600 border-purple-200 hover:bg-purple-50 hover:border-purple-400 transition-all"
+                        title="Paste Rule from Clipboard"
+                    >
+                        <Clipboard size={18} /> PASTE
+                    </button>
                 </div>
 
                 <div
@@ -1558,10 +1579,70 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                     )}
 
                     {filteredRules.map((rule) => (
-                        <div key={rule.id} className="relative w-full max-w-5xl bg-white/90 border-[3px] border-black rounded-full pl-4 pr-12 py-3 flex items-center justify-between shadow-[4px_4px_0px_rgba(0,0,0,0.2)] animate-[wiggle_1s_ease-in-out_infinite]">
-                            <button onClick={() => removeRule(rule.id)} className="absolute top-0 right-0 translate-x-1/2 -translate-y-1/2 bg-red-500 text-white rounded-full p-2 border-2 border-black hover:scale-110 transition-transform shadow-sm z-20">
-                                <Trash2 size={18} />
-                            </button>
+                        <div
+                            key={rule.id}
+                            draggable="true"
+                            onDragStart={(e) => {
+                                e.dataTransfer.setData("type", "REORDER_RULE");
+                                e.dataTransfer.setData("ruleId", rule.id);
+                                e.dataTransfer.effectAllowed = "move";
+                            }}
+                            onDragOver={(e) => {
+                                e.preventDefault();
+                                e.dataTransfer.dropEffect = "move";
+                            }}
+                            onDrop={(e) => {
+                                e.preventDefault();
+                                const type = e.dataTransfer.getData("type");
+                                if (type === "REORDER_RULE") {
+                                    const sourceRuleId = e.dataTransfer.getData("ruleId");
+                                    if (sourceRuleId === rule.id) return;
+
+                                    const allRules = [...gameData.rules];
+                                    const sourceIndex = allRules.findIndex(r => r.id === sourceRuleId);
+                                    let targetIndex = allRules.findIndex(r => r.id === rule.id);
+
+                                    // Check if dropping on bottom half
+                                    const rect = e.currentTarget.getBoundingClientRect();
+                                    const relativeY = e.clientY - rect.top;
+                                    if (relativeY > rect.height / 2) {
+                                        targetIndex++;
+                                    }
+
+                                    if (sourceIndex >= 0 && targetIndex >= 0) {
+                                        const [movedRule] = allRules.splice(sourceIndex, 1);
+                                        // Adjust target index if removal shifted it
+                                        if (sourceIndex < targetIndex) {
+                                            targetIndex--;
+                                        }
+                                        allRules.splice(targetIndex, 0, movedRule);
+                                        onUpdateRules(allRules);
+                                    }
+                                } else {
+                                    handleSlotDrop(e, rule.id, 'trigger_modifier');
+                                }
+                            }}
+                            className="relative w-full max-w-5xl bg-white/90 border-[3px] border-black rounded-full pl-4 pr-12 py-3 flex items-center justify-between shadow-[4px_4px_0px_rgba(0,0,0,0.2)] animate-[wiggle_1s_ease-in-out_infinite] cursor-grab active:cursor-grabbing hover:scale-[1.01] transition-transform"
+                        >
+                            <div className="absolute top-0 right-0 translate-x-1/2 -translate-y-1/2 flex gap-1 z-20">
+                                <button
+                                    onClick={() => {
+                                        localStorage.setItem('sok_maker_clipboard_rule', JSON.stringify(rule));
+                                        // Optional: Visual feedback
+                                    }}
+                                    className="bg-blue-500 text-white rounded-full p-2 border-2 border-black hover:scale-110 transition-transform shadow-sm"
+                                    title="Copy Rule"
+                                >
+                                    <Copy size={14} />
+                                </button>
+                                <button
+                                    onClick={() => removeRule(rule.id)}
+                                    className="bg-red-500 text-white rounded-full p-2 border-2 border-black hover:scale-110 transition-transform shadow-sm"
+                                    title="Delete Rule"
+                                >
+                                    <Trash2 size={18} />
+                                </button>
+                            </div>
 
                             <div className="flex items-center gap-2 w-full justify-between">
                                 {/* --- LEFT SIDE: THE TRIGGER --- */}

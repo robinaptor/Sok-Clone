@@ -1149,6 +1149,107 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
         );
     };
 
+    // --- GLOBAL COLLISION DETECTION (Physics & Projectiles) ---
+    useEffect(() => {
+        if (status !== 'PLAYING') return;
+
+        const objs = objects;
+        const activeRules = getActiveRules();
+        const collisionRules = activeRules.filter(r => r.trigger === RuleTrigger.COLLISION);
+        const hitRules = activeRules.filter(r => r.trigger === RuleTrigger.HIT);
+
+        if (collisionRules.length === 0 && hitRules.length === 0) return;
+
+        // Check all pairs
+        for (let i = 0; i < objs.length; i++) {
+            for (let j = i + 1; j < objs.length; j++) {
+                const objA = objs[i];
+                const objB = objs[j];
+
+                const isTouching = checkCollision(objA, objB);
+                const pairKey = [objA.id, objB.id].sort().join(':');
+
+                if (isTouching) {
+                    if (!activeCollisions.current.has(pairKey)) {
+                        activeCollisions.current.add(pairKey);
+
+                        // 1. COLLISION Rules
+                        const relevantCollisionRules = collisionRules.filter(r =>
+                            (r.subjectId === objA.actorId && r.objectId === objB.actorId) ||
+                            (r.subjectId === objB.actorId && r.objectId === objA.actorId)
+                        );
+
+                        relevantCollisionRules.forEach(rule => {
+                            if (!rule.invert) {
+                                // Determine subject and object for the rule
+                                let subjectInstanceId = rule.subjectId === objA.actorId ? objA.id : objB.id;
+                                let objectInstanceId = rule.subjectId === objA.actorId ? objB.id : objA.id;
+
+                                // If both are same actor type, we need to be careful. 
+                                // But usually subjectId != objectId for meaningful rules.
+                                // If subjectId == objectId, it triggers twice? 
+                                // Let's assume standard case.
+
+                                if (rule.chance && Math.random() > rule.chance) return;
+                                if (!executingRuleIds.current.has(rule.id)) {
+                                    if (rule.soundId) playSound(rule.soundId);
+                                    executingRuleIds.current.add(rule.id);
+                                    executeRuleEffects(rule.id, rule.effects, subjectInstanceId, objectInstanceId)
+                                        .then(() => executingRuleIds.current.delete(rule.id));
+                                }
+                            }
+                        });
+
+                        // 2. HIT Rules (Projectile)
+                        const isAProjectile = (objA.vx || 0) !== 0 || (objA.vy || 0) !== 0;
+                        const isBProjectile = (objB.vx || 0) !== 0 || (objB.vy || 0) !== 0;
+
+                        if (isAProjectile || isBProjectile) {
+                            const relevantHitRules = hitRules.filter(r =>
+                                (r.subjectId === objA.actorId && r.objectId === objB.actorId) ||
+                                (r.subjectId === objB.actorId && r.objectId === objA.actorId)
+                            );
+
+                            relevantHitRules.forEach(rule => {
+                                // HIT Logic: Subject = Victim, Object = Projectile
+                                let subjectInstanceId, objectInstanceId;
+
+                                // Case 1: A is Subject (Victim), B is Object (Projectile)
+                                if (rule.subjectId === objA.actorId && rule.objectId === objB.actorId) {
+                                    if (isBProjectile) {
+                                        subjectInstanceId = objA.id;
+                                        objectInstanceId = objB.id;
+                                    }
+                                }
+                                // Case 2: B is Subject (Victim), A is Object (Projectile)
+                                else if (rule.subjectId === objB.actorId && rule.objectId === objA.actorId) {
+                                    if (isAProjectile) {
+                                        subjectInstanceId = objB.id;
+                                        objectInstanceId = objA.id;
+                                    }
+                                }
+
+                                if (subjectInstanceId && objectInstanceId) {
+                                    if (rule.chance && Math.random() > rule.chance) return;
+                                    if (!executingRuleIds.current.has(rule.id)) {
+                                        if (rule.soundId) playSound(rule.soundId);
+                                        executingRuleIds.current.add(rule.id);
+                                        executeRuleEffects(rule.id, rule.effects, subjectInstanceId, objectInstanceId)
+                                            .then(() => executingRuleIds.current.delete(rule.id));
+                                    }
+                                }
+                            });
+                        }
+                    }
+                } else {
+                    if (activeCollisions.current.has(pairKey)) {
+                        activeCollisions.current.delete(pairKey);
+                    }
+                }
+            }
+        }
+    }, [objects, status]);
+
     const handleMouseDown = async (e: React.MouseEvent, obj: LevelObject) => {
         if (status !== 'PLAYING') return;
         e.stopPropagation();
