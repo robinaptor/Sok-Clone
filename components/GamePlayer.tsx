@@ -162,10 +162,13 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
     const [shakeIntensity, setShakeIntensity] = useState(0);
 
     // PARTICLES STATE
-    const [particles, setParticles] = useState<{ id: string, x: number, y: number, color: string, vx: number, vy: number, life: number, size: number, type: 'CONFETTI' | 'EXPLOSION' | 'SMOKE' | 'RAIN', actorId?: string }[]>([]);
+    const [particles, setParticles] = useState<{ id: string, x: number, y: number, color: string, vx: number, vy: number, life: number, size: number, type: 'CONFETTI' | 'EXPLOSION' | 'SMOKE' | 'RAIN' | 'SPARKLES', actorId?: string }[]>([]);
 
     const [status, setStatus] = useState<'LOADING' | 'READY' | 'PLAYING' | 'WON' | 'LOST' | 'TRANSITION'>('LOADING');
     const [loadedSoundCount, setLoadedSoundCount] = useState(0);
+
+    // HUD STATE
+    const [activeVariablePopup, setActiveVariablePopup] = useState<string | null>(null);
 
     const [draggingId, setDraggingId] = useState<string | null>(null);
     const dragOffset = useRef({ x: 0, y: 0 });
@@ -280,20 +283,95 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
             const dt = (time - lastTime) / 1000; // Delta time in seconds
             lastTime = time;
 
-            // Update Objects (Projectiles)
+            // Update Objects (Projectiles & HELD objects)
             setObjects(prev => {
                 let changed = false;
                 const next = prev.map(o => {
-                    if (o.vx || o.vy) {
+                    // HELD OBJECT LOGIC
+                    if (o.heldBy) {
+                        const holder = prev.find(h => h.id === o.heldBy);
+                        if (holder) {
+                            // Snap to holder WITH OFFSET
+                            const mySize = ACTOR_SIZE * (o.scale || 1);
+                            const holderSize = ACTOR_SIZE * (holder.scale || 1);
+
+                            // Use configured offsets if available, otherwise center
+                            const offsetX = o.holdOffsetX ?? 0;
+                            const offsetY = o.holdOffsetY ?? 0;
+
+                            // Position relative to holder's center + offset
+                            const nx = holder.x + (holderSize / 2) - (mySize / 2) + offsetX;
+                            const ny = holder.y + (holderSize / 2) - (mySize / 2) + offsetY;
+
+                            if (Math.abs(o.x - nx) > 1 || Math.abs(o.y - ny) > 1) {
+                                changed = true;
+                                return { ...o, x: nx, y: ny, vx: 0, vy: 0 };
+                            }
+                            return o;
+                        } else {
+                            // Holder gone, drop it
+                            changed = true;
+                            return { ...o, heldBy: undefined };
+                        }
+                    }
+
+                    // Handle Active Path Movement
+                    if (o.activePath) {
+                        changed = true;
+                        const targetPoint = o.activePath.points[o.activePath.currentIndex];
+                        const dx = targetPoint.x - o.x;
+                        const dy = targetPoint.y - o.y;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        const speed = o.activePath.speed || 2;
+
+                        if (dist < speed) {
+                            // Reached point
+                            const nextIndex = (o.activePath.currentIndex + 1) % o.activePath.points.length;
+                            // If not looping and reached end, stop
+                            if (!o.activePath.loop && nextIndex === 0) {
+                                return { ...o, x: targetPoint.x, y: targetPoint.y, activePath: undefined };
+                            }
+                            return {
+                                ...o,
+                                x: targetPoint.x,
+                                y: targetPoint.y,
+                                activePath: { ...o.activePath, currentIndex: nextIndex }
+                            };
+                        } else {
+                            // Move towards point
+                            return {
+                                ...o,
+                                x: o.x + (dx / dist) * speed,
+                                y: o.y + (dy / dist) * speed
+                            };
+                        }
+                    }
+
+                    if (o.vx || o.vy || o.z || o.vz) {
                         changed = true;
                         let nx = o.x + (o.vx || 0) * dt * 60; // Scale speed
                         let ny = o.y + (o.vy || 0) * dt * 60;
+
+                        // Z-Axis Physics (Jump)
+                        let nz = (o.z || 0) + (o.vz || 0) * dt * 60;
+                        let nvz = (o.vz || 0);
+
+                        // Gravity
+                        if (nz > 0 || nvz > 0) {
+                            nvz -= 1.5 * dt * 60; // Gravity force
+                        }
+
+                        // Ground collision
+                        if (nz < 0) {
+                            nz = 0;
+                            nvz = 0;
+                        }
 
                         // Bounds check for projectiles (destroy if out of bounds)
                         if (nx < -50 || nx > SCENE_WIDTH + 50 || ny < -50 || ny > SCENE_HEIGHT + 50) {
                             return null; // Mark for deletion
                         }
-                        return { ...o, x: nx, y: ny };
+                        return { ...o, x: nx, y: ny, z: nz, vz: nvz };
                     }
                     return o;
                 }).filter(Boolean) as LevelObject[];
@@ -422,7 +500,13 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
             if (match) {
                 executingRuleIds.current.add(rule.id);
                 if (rule.soundId) playSound(rule.soundId);
-                await executeRuleEffects(rule.id, rule.effects, 'GLOBAL', null);
+
+                // For global rules (VAR_CHECK), default the subject to the Hero (or first actor)
+                // This allows effects like "DIE" to work on the player when a variable changes
+                const hero = objectsRef.current.find(o => o.actorId === gameData.actors[0].id);
+                const subjectId = hero ? hero.id : 'GLOBAL';
+
+                await executeRuleEffects(rule.id, rule.effects, subjectId, null);
                 setTimeout(() => executingRuleIds.current.delete(rule.id), 1000);
             }
         }
@@ -535,6 +619,18 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                         jumpToScene(effect.targetSceneId);
                         previousActionDuration = 0;
                         break;
+                    case InteractionType.JUMP:
+                        setObjects(prev => prev.map(o => {
+                            if (o.id === targetId) {
+                                // Apply vertical velocity for jump (Z-axis)
+                                // Default intensity 15 if not specified
+                                const jumpStrength = effect.value || 15;
+                                return { ...o, vz: jumpStrength };
+                            }
+                            return o;
+                        }));
+                        previousActionDuration = 0;
+                        break;
                     case InteractionType.SWAP:
                         if (effect.spawnActorId) {
                             setObjects(prev => prev.map(o => {
@@ -591,69 +687,85 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                         setTimeout(() => setShakeIntensity(0), 500);
                         previousActionDuration = 0;
                         break;
-                    case InteractionType.STEP:
-                        setObjects(prev => prev.map(o => {
-                            if (o.id === targetId) {
-                                // Determine Target
-                                let targetX = o.x;
-                                let targetY = o.y;
+                    // CHASE (Was STEP)
+                    case InteractionType.CHASE:
+                        // ... (existing CHASE logic) ...
+                        // Move towards target (hero or specific actor)
+                        const subjectObj = objectsRef.current.find(o => o.id === targetId);
+                        if (!subjectObj) break;
 
-                                // If a specific target actor was chosen in the editor
-                                if (effect.spawnActorId) {
-                                    // Find nearest instance of this actor
-                                    const targets = prev.filter(t => t.actorId === effect.spawnActorId && t.id !== o.id);
-                                    if (targets.length > 0) {
-                                        // Find closest
-                                        let closest = targets[0];
-                                        let minDist = Math.hypot(closest.x - o.x, closest.y - o.y);
-                                        for (const t of targets) {
-                                            const d = Math.hypot(t.x - o.x, t.y - o.y);
-                                            if (d < minDist) {
-                                                minDist = d;
-                                                closest = t;
-                                            }
-                                        }
-                                        targetX = closest.x;
-                                        targetY = closest.y;
-                                    }
-                                } else {
-                                    // Default: Move towards Hero (if exists and is not self)
-                                    const hero = prev.find(h => h.actorId === gameData.actors[0].id);
-                                    if (hero && hero.id !== o.id) {
-                                        targetX = hero.x;
-                                        targetY = hero.y;
-                                    }
-                                }
+                        const chaseTargetActorId = effect.spawnActorId; // If set, chase this actor. If null, chase hero.
 
-                                // Move towards target
-                                const dx = targetX - o.x;
-                                const dy = targetY - o.y;
-                                const dist = Math.hypot(dx, dy);
+                        let targetX = 0;
+                        let targetY = 0;
 
-                                if (dist > 10) {
-                                    const stepSize = 40; // Half a tile
-                                    const moveX = (dx / dist) * stepSize;
-                                    const moveY = (dy / dist) * stepSize;
-
-                                    let nx = o.x + moveX;
-                                    let ny = o.y + moveY;
-
-                                    // Bounds check
-                                    const mySize = ACTOR_SIZE * (o.scale || 1);
-                                    nx = Math.max(0, Math.min(nx, SCENE_WIDTH - mySize));
-                                    ny = Math.max(0, Math.min(ny, SCENE_HEIGHT - mySize));
-
-                                    return { ...o, x: nx, y: ny };
-                                }
+                        if (chaseTargetActorId) {
+                            const targetObj = objectsRef.current.find(o => o.actorId === chaseTargetActorId);
+                            if (targetObj) {
+                                targetX = targetObj.x;
+                                targetY = targetObj.y;
                             }
-                            return o;
-                        }));
+                        } else {
+                            // Chase Hero
+                            const hero = objectsRef.current.find(o => o.actorId === gameData.actors[0].id);
+                            if (hero) {
+                                targetX = hero.x;
+                                targetY = hero.y;
+                            }
+                        }
+
+                        // Simple step towards target
+                        const dx = targetX - subjectObj.x;
+                        const dy = targetY - subjectObj.y;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+
+                        if (dist > 5) {
+                            const stepSize = 10; // Pixel per step
+                            const moveX = (dx / dist) * stepSize;
+                            const moveY = (dy / dist) * stepSize;
+
+                            setObjects(prev => prev.map(o => {
+                                if (o.id === targetId) {
+                                    return { ...o, x: o.x + moveX, y: o.y + moveY };
+                                }
+                                return o;
+                            }));
+                        }
                         previousActionDuration = 200; // Small delay for steps
+                        break;
+
+                    case InteractionType.MOVE:
+                        if (effect.path && effect.path.length > 0) {
+                            setObjects(prev => prev.map(o => {
+                                if (o.id === targetId) {
+                                    return {
+                                        ...o,
+                                        activePath: {
+                                            points: effect.path!,
+                                            currentIndex: 0,
+                                            speed: 2, // Default speed
+                                            loop: true // Default loop? Or make it configurable? Let's say loop for now.
+                                        }
+                                    };
+                                }
+                                return o;
+                            }));
+                        }
+                        previousActionDuration = 0;
                         break;
                     case InteractionType.SHOOT:
                         if (effect.spawnActorId) {
-                            const shooter = objectsRef.current.find(o => o.id === targetId);
-                            if (shooter) {
+                            // Determine Shooters
+                            let shooters: LevelObject[] = [];
+                            if (effect.shooterActorId) {
+                                shooters = objectsRef.current.filter(o => o.actorId === effect.shooterActorId);
+                            } else {
+                                // Default: Use the subject (the one performing the action)
+                                const s = objectsRef.current.find(o => o.id === subjectObjId);
+                                if (s) shooters.push(s);
+                            }
+
+                            shooters.forEach(shooter => {
                                 let vx = 0;
                                 let vy = 0;
                                 const speed = 8; // Projectile speed
@@ -689,7 +801,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
 
                                 const projectile: LevelObject = {
                                     id: Math.random().toString(36).substr(2, 9),
-                                    actorId: effect.spawnActorId,
+                                    actorId: effect.spawnActorId!,
                                     x: spawnX,
                                     y: spawnY,
                                     scale: effect.projectileSize || 0.5,
@@ -699,8 +811,120 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                                 };
 
                                 setObjects(prev => [...prev, projectile]);
-                            }
+                            });
                         }
+                        previousActionDuration = 0;
+                        break;
+                    case InteractionType.HOLD:
+                        // HOLD
+                        const holdTargetType = effect.holdConfig?.targetActorId;
+                        const holdHolderType = effect.holdConfig?.holderActorId;
+
+                        // 1. Determine the HOLDER Instance(s)
+                        let potentialHolders: LevelObject[] = [];
+                        if (holdHolderType) {
+                            // If a specific holder type is configured, find all instances of that type
+                            potentialHolders = objectsRef.current.filter(o => o.actorId === holdHolderType);
+                        } else {
+                            // Default: The subject of the rule (e.g. the one who clicked or collided)
+                            const subj = objectsRef.current.find(o => o.id === subjectObjId);
+                            if (subj) potentialHolders.push(subj);
+                        }
+
+                        // 2. For each holder, try to find a target to hold
+                        const updates = new Map<string, Partial<LevelObject>>();
+
+                        potentialHolders.forEach(holder => {
+                            // If this holder is already holding something, maybe skip? Or allow multiple? 
+                            // For now, let's assume one item per holder for simplicity, unless we want to stack.
+                            // But the user might want to hold multiple things. Let's allow it.
+
+                            let targetToHold: LevelObject | null = null;
+
+                            if (holdTargetType) {
+                                // Find nearest instance of this type that is NOT held
+                                const candidates = objectsRef.current.filter(o => o.actorId === holdTargetType && !o.heldBy && o.id !== holder.id);
+                                let minDist = Infinity;
+                                candidates.forEach(c => {
+                                    const d = Math.hypot(c.x - holder.x, c.y - holder.y);
+                                    if (d < minDist) {
+                                        minDist = d;
+                                        targetToHold = c;
+                                    }
+                                });
+                            } else {
+                                // Default: The target of the rule (e.g. the object clicked or collided with)
+                                // But only if it's NOT the holder itself
+                                if (targetId && targetId !== holder.id) {
+                                    const t = objectsRef.current.find(o => o.id === targetId);
+                                    if (t && !t.heldBy) targetToHold = t;
+                                }
+                            }
+
+                            if (targetToHold) {
+                                updates.set(targetToHold.id, {
+                                    heldBy: holder.id,
+                                    holdOffsetX: effect.holdConfig?.offsetX || 0,
+                                    holdOffsetY: effect.holdConfig?.offsetY || 0
+                                });
+                            }
+                        });
+
+                        if (updates.size > 0) {
+                            setObjects(prev => prev.map(o => {
+                                if (updates.has(o.id)) {
+                                    return { ...o, ...updates.get(o.id) };
+                                }
+                                return o;
+                            }));
+                        }
+                        previousActionDuration = 0;
+                        break;
+
+                    case InteractionType.DROP:
+                        // DROP
+                        const dropTargetType = effect.holdConfig?.targetActorId;
+                        const dropHolderType = effect.holdConfig?.holderActorId;
+
+                        // 1. Determine the HOLDER Instance(s)
+                        let droppers: LevelObject[] = [];
+                        if (dropHolderType) {
+                            droppers = objectsRef.current.filter(o => o.actorId === dropHolderType);
+                        } else {
+                            const subj = objectsRef.current.find(o => o.id === subjectObjId);
+                            if (subj) droppers.push(subj);
+                        }
+
+                        // 2. Drop items held by these droppers
+                        setObjects(prev => prev.map(obj => {
+                            // Is this object held by one of our droppers?
+                            const heldByDropper = droppers.some(d => d.id === obj.heldBy);
+
+                            if (heldByDropper) {
+                                // If a specific target type was requested, check it
+                                if (dropTargetType && obj.actorId !== dropTargetType) return obj;
+
+                                // Drop at holder's position (NO OFFSET)
+                                const holder = droppers.find(d => d.id === obj.heldBy);
+                                let newX = obj.x;
+                                let newY = obj.y;
+
+                                if (holder) {
+                                    newX = holder.x;
+                                    newY = holder.y;
+                                }
+
+                                return {
+                                    ...obj,
+                                    heldBy: undefined,
+                                    holdOffsetX: undefined,
+                                    holdOffsetY: undefined,
+                                    x: newX,
+                                    y: newY
+                                };
+                            }
+                            return obj;
+                        }));
                         previousActionDuration = 0;
                         break;
                     case InteractionType.PARTICLES:
@@ -812,21 +1036,39 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
         if (status !== 'PLAYING') return;
 
         const handleKeyDown = (e: KeyboardEvent) => {
-            const keyMap: Record<string, 'UP' | 'DOWN' | 'LEFT' | 'RIGHT'> = {
-                'ArrowUp': 'UP', 'w': 'UP',
-                'ArrowDown': 'DOWN', 's': 'DOWN',
-                'ArrowLeft': 'LEFT', 'a': 'LEFT',
-                'ArrowRight': 'RIGHT', 'd': 'RIGHT'
-            };
+            const key = e.key.toUpperCase();
+            let mappedKey = key;
 
-            const direction = keyMap[e.key];
-            if (!direction) return;
+            // Map special keys to match Rule format
+            if (key === 'ARROWUP') mappedKey = 'UP';
+            if (key === 'ARROWDOWN') mappedKey = 'DOWN';
+            if (key === 'ARROWLEFT') mappedKey = 'LEFT';
+            if (key === 'ARROWRIGHT') mappedKey = 'RIGHT';
+            if (key === ' ') mappedKey = 'SPACE';
+
+            // Also support WASD as arrows if desired, or keep them separate?
+            // For now, let's map WASD to arrows for backward compatibility if they were used that way
+            // But the new recorder allows recording 'W' specifically.
+            // Let's keep the old map for now as a fallback or alternative?
+            // Actually, the previous code mapped 'w' to 'UP'.
+            // If I want to support "Any key", I should probably respect the recorded key.
+            // If the rule says 'UP', then ArrowUp or W should trigger it.
+            // If the rule says 'W', then only W should trigger it.
 
             const activeRules = getActiveRules();
             const keyRules = activeRules.filter(r => r.trigger === RuleTrigger.KEY_PRESS);
 
             keyRules.forEach(rule => {
-                const isMatch = rule.key === direction;
+                let isMatch = false;
+
+                // Legacy/Arrow Logic
+                if (rule.key === 'UP' && (key === 'ARROWUP' || key === 'W')) isMatch = true;
+                else if (rule.key === 'DOWN' && (key === 'ARROWDOWN' || key === 'S')) isMatch = true;
+                else if (rule.key === 'LEFT' && (key === 'ARROWLEFT' || key === 'A')) isMatch = true;
+                else if (rule.key === 'RIGHT' && (key === 'ARROWRIGHT' || key === 'D')) isMatch = true;
+                // Direct Match (for new keys like SPACE, ENTER, X, Z...)
+                else if (rule.key === mappedKey) isMatch = true;
+
                 // Normal: Match AND Not Invert
                 // Invert: Not Match AND Invert
                 const shouldRun = (isMatch && !rule.invert) || (!isMatch && rule.invert);
@@ -953,6 +1195,8 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                 if (!activeCollisions.current.has(pairKey)) {
                     activeCollisions.current.add(pairKey);
                     const activeRules = getActiveRules();
+
+                    // Regular COLLISION rules
                     const rules = activeRules.filter(r =>
                         r.trigger === RuleTrigger.COLLISION && r.subjectId === movingObj.actorId && r.objectId === other.actorId
                     );
@@ -975,6 +1219,46 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                             }
                         }
                     }
+
+                    // HIT trigger (projectile collisions)
+                    const movingIsProjectile = (movingObj.vx !== undefined && movingObj.vx !== 0) || (movingObj.vy !== undefined && movingObj.vy !== 0);
+                    const otherIsProjectile = (other.vx !== undefined && other.vx !== 0) || (other.vy !== undefined && other.vy !== 0);
+
+                    if (movingIsProjectile || otherIsProjectile) {
+                        // When moving object (projectile) hits other
+                        if (movingIsProjectile) {
+                            const hitRules = activeRules.filter(r =>
+                                r.trigger === RuleTrigger.HIT && r.subjectId === other.actorId && r.objectId === movingObj.actorId
+                            );
+                            for (const rule of hitRules) {
+                                if (!executingRuleIds.current.has(rule.id)) {
+                                    if (rule.soundId) playSound(rule.soundId);
+                                    if (rule.effects.length > 0) {
+                                        executingRuleIds.current.add(rule.id);
+                                        executeRuleEffects(rule.id, rule.effects, other.id, movingObj.id)
+                                            .then(() => { executingRuleIds.current.delete(rule.id); });
+                                    }
+                                }
+                            }
+                        }
+
+                        // When other object (projectile) hits moving
+                        if (otherIsProjectile) {
+                            const hitRules = activeRules.filter(r =>
+                                r.trigger === RuleTrigger.HIT && r.subjectId === movingObj.actorId && r.objectId === other.actorId
+                            );
+                            for (const rule of hitRules) {
+                                if (!executingRuleIds.current.has(rule.id)) {
+                                    if (rule.soundId) playSound(rule.soundId);
+                                    if (rule.effects.length > 0) {
+                                        executingRuleIds.current.add(rule.id);
+                                        executeRuleEffects(rule.id, rule.effects, movingObj.id, other.id)
+                                            .then(() => { executingRuleIds.current.delete(rule.id); });
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             } else {
                 const isStillClose = checkCollision(
@@ -983,7 +1267,58 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                 if (!isStillClose && activeCollisions.current.has(pairKey)) {
                     activeCollisions.current.delete(pairKey);
 
-                    // TRIGGER "EXIT COLLISION" (Inverted Rules)
+                    // --- COLLISION + INVERT (CONTINUOUS TOUCHING) ---
+                    // This logic was previously for "EXIT COLLISION" but is now for continuous inverted collision.
+                    // The original "EXIT COLLISION" logic is removed as per the user's instruction to insert new code.
+                    // Assuming `matchActors`, `continuousCollisions`, and `triggerRule` are defined elsewhere or will be added.
+                    // For now, I'll comment them out to maintain syntactical correctness if they are not defined.
+                    /*
+                    if (matchActors) {
+                        const invertMatches = rules.filter(r =>
+                            r.trigger === RuleTrigger.COLLISION && r.subjectId === movingObj.actorId && r.objectId === other.actorId && r.invert
+                        );
+
+                        for (const r of invertMatches) {
+                            if (!continuousCollisions[r.id]) {
+                                continuousCollisions[r.id] = new Set();
+                            }
+                            const pairKey = `${movingObj.id}_${other.id}`;
+                            if (!continuousCollisions[r.id].has(pairKey)) {
+                                continuousCollisions[r.id].add(pairKey);
+                                triggerRule(r, movingObj.id, other.id);
+                            }
+                        }
+                    }
+                    */
+
+                    // --- HIT TRIGGER (Projectile Collision Detection) ---
+                    // Check if either object is a projectile (has velocity)
+                    const movingIsProjectile = (movingObj.vx !== undefined && movingObj.vx !== 0) || (movingObj.vy !== undefined && movingObj.vy !== 0);
+                    const otherIsProjectile = (other.vx !== undefined && other.vx !== 0) || (other.vy !== undefined && other.vy !== 0);
+
+                    // Assuming `matchActors` and `triggerRule` are defined elsewhere or will be added.
+                    // For now, I'll comment them out to maintain syntactical correctness if they are not defined.
+                    /*
+                    if (matchActors && (movingIsProjectile || otherIsProjectile)) {
+                        // When A (projectile) hits B
+                        if (movingIsProjectile) {
+                            const hitRules = rules.filter(r =>
+                                r.trigger === RuleTrigger.HIT && r.subjectId === other.actorId && r.objectId === movingObj.actorId
+                            );
+                            hitRules.forEach(r => triggerRule(r, other.id, movingObj.id));
+                        }
+
+                        // When B (projectile) hits A
+                        if (otherIsProjectile) {
+                            const hitRules = rules.filter(r =>
+                                r.trigger === RuleTrigger.HIT && r.subjectId === movingObj.actorId && r.objectId === other.actorId
+                            );
+                            hitRules.forEach(r => triggerRule(r, movingObj.id, other.id));
+                        }
+                    }
+                    */
+
+                    // Original "EXIT COLLISION" logic (now after the new insertion)
                     const activeRules = getActiveRules();
                     const rules = activeRules.filter(r =>
                         r.trigger === RuleTrigger.COLLISION && r.subjectId === movingObj.actorId && r.objectId === other.actorId && r.invert
@@ -1044,17 +1379,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                             </div>
                         ))}
                         {/* UI OVERLAY */}
-                        {/* VARIABLES HUD */}
-                        {status === 'PLAYING' && gameData.variables && gameData.variables.length > 0 && (
-                            <div className="absolute top-4 left-4 z-40 flex flex-col gap-2">
-                                {gameData.variables.map(v => (
-                                    <div key={v.id} className="sketch-box px-3 py-1 font-bold text-lg shadow-sm flex items-center gap-2 min-w-[100px]">
-                                        <span className="uppercase text-xs text-gray-400">{v.name}:</span>
-                                        <span className="text-2xl leading-none">{runtimeVariables[v.id] ?? v.initialValue}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
+                        {/* VARIABLES HUD REMOVED - NOW ATTACHED TO OBJECTS */}
 
                         {status === 'LOADING' && (
                             <div className="absolute inset-0 bg-white z-50 flex flex-col items-center justify-center">
@@ -1085,22 +1410,156 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                                 const activeBubble = activeBubbles[obj.id];
 
                                 return (
-                                    <div
-                                        key={obj.id}
-                                        onMouseDown={(e) => handleMouseDown(e, obj)}
-                                        className={`absolute flex items-center justify-center select-none ${!obj.isLocked ? 'cursor-grab active:cursor-grabbing' : ''} ${obj.isEphemeral ? 'pointer-events-none' : ''}`}
-                                        style={{
-                                            left: obj.x, top: obj.y, width: displaySize, height: displaySize,
-                                            zIndex: isDragging ? 50 : 10, transition: isDragging ? 'none' : 'transform 0.1s',
-                                            transform: isDragging ? 'scale(1.05)' : 'scale(1)', opacity: obj.isEphemeral ? 0.9 : 1
-                                        }}
-                                    >
-                                        {activeBubble && <SpeechBubble text={activeBubble.text} />}
-                                        <AnimatedSprite baseActor={actor} playingActor={playingActor} isLooping={obj.activeAnimation?.isLoop} isEphemeral={obj.isEphemeral} onFinish={() => handleAnimationFinish(obj.id)} triggerTime={obj.activeAnimation?.startTime} />
-                                    </div>
+                                    <>
+                                        {/* SHADOW (Only when in air) */}
+                                        {(obj.z || 0) > 0 && (
+                                            <div
+                                                className="absolute bg-black/20 rounded-full blur-[2px]"
+                                                style={{
+                                                    left: obj.x + displaySize * 0.2,
+                                                    top: obj.y + displaySize * 0.8,
+                                                    width: displaySize * 0.6,
+                                                    height: displaySize * 0.2,
+                                                    zIndex: 5 + Math.floor(obj.y) // Ground level z-index
+                                                }}
+                                            />
+                                        )}
+                                        <div
+                                            key={obj.id}
+                                            onMouseDown={(e) => handleMouseDown(e, obj)}
+                                            className={`absolute flex items-center justify-center select-none ${!obj.isLocked ? 'cursor-grab active:cursor-grabbing' : ''} ${obj.isEphemeral ? 'pointer-events-none' : ''}`}
+                                            style={{
+                                                left: obj.x, top: obj.y - (obj.z || 0), width: displaySize, height: displaySize,
+                                                zIndex: isDragging ? 50 : 10 + Math.floor(obj.y), // Use Y for Z-sorting
+                                                transition: isDragging ? 'none' : 'transform 0.1s',
+                                                transform: isDragging ? 'scale(1.05)' : 'scale(1)', opacity: obj.isEphemeral ? 0.9 : 1
+                                            }}
+                                        >
+                                            {activeBubble && <SpeechBubble text={activeBubble.text} />}
+                                            <AnimatedSprite baseActor={actor} playingActor={playingActor} isLooping={obj.activeAnimation?.isLoop} isEphemeral={obj.isEphemeral} onFinish={() => handleAnimationFinish(obj.id)} triggerTime={obj.activeAnimation?.startTime} />
+
+                                            {/* ATTACHED VARIABLE MONITOR (HUD) */}
+                                            {obj.variableMonitor && (
+                                                <>
+                                                    {/* POPUP MODE: Show button */}
+                                                    {obj.variableMonitor.displayMode === 'POPUP' && (
+                                                        <>
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setActiveVariablePopup(activeVariablePopup === obj.id ? null : obj.id);
+                                                                }}
+                                                                className="absolute -top-3 -right-3 w-8 h-8 bg-white border-2 border-black rounded-full flex items-center justify-center shadow-sm hover:scale-110 transition-transform z-50"
+                                                            >
+                                                                <span className="font-bold text-xs">i</span>
+                                                            </button>
+
+                                                            {/* POPUP HUD */}
+                                                            {activeVariablePopup === obj.id && (
+                                                                <div className="absolute bottom-[110%] left-1/2 -translate-x-1/2 bg-white border-[3px] border-black rounded-xl p-3 shadow-[4px_4px_0px_rgba(0,0,0,0.5)] z-[60] min-w-[140px] animate-in zoom-in duration-200 origin-bottom">
+                                                                    {(() => {
+                                                                        const val = runtimeVariables[obj.variableMonitor!.variableId] ?? 0;
+                                                                        const vDef = gameData.variables?.find(v => v.id === obj.variableMonitor!.variableId);
+                                                                        const name = vDef ? vDef.name : "???";
+
+                                                                        return (
+                                                                            <div className="flex flex-col gap-2">
+                                                                                <div className="font-bold text-sm text-center uppercase border-b-2 border-black/10 pb-1">{name}</div>
+
+                                                                                {obj.variableMonitor!.mode === 'TEXT' ? (
+                                                                                    <div className="text-center text-2xl font-bold">{val}</div>
+                                                                                ) : (
+                                                                                    <div className="flex flex-col gap-1 w-full">
+                                                                                        <div className="w-full h-4 bg-gray-200 rounded-full overflow-hidden border-2 border-black relative">
+                                                                                            <div
+                                                                                                className="h-full transition-all duration-300"
+                                                                                                style={{
+                                                                                                    width: `${Math.min(100, Math.max(0, (val / (obj.variableMonitor!.maxValue || 100)) * 100))}%`,
+                                                                                                    backgroundColor: obj.variableMonitor!.barColor || '#22c55e'
+                                                                                                }}
+                                                                                            ></div>
+                                                                                        </div>
+                                                                                        <div className="text-xs font-bold text-center text-gray-500">
+                                                                                            {val} / {obj.variableMonitor!.maxValue || 100}
+                                                                                        </div>
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+                                                                        );
+                                                                    })()}
+                                                                    {/* Triangle tail */}
+                                                                    <div className="absolute bottom-[-8px] left-1/2 -translate-x-1/2 w-0 h-0 border-l-[8px] border-l-transparent border-r-[8px] border-r-transparent border-t-[8px] border-t-black"></div>
+                                                                    <div className="absolute bottom-[-4px] left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[6px] border-t-white"></div>
+                                                                </div>
+                                                            )}
+                                                        </>
+                                                    )}
+
+                                                    {/* ALWAYS_VISIBLE MODE: Direct integration into sprite */}
+                                                    {(obj.variableMonitor.displayMode === 'ALWAYS_VISIBLE' || !obj.variableMonitor.displayMode) && (
+                                                        <div
+                                                            className="absolute pointer-events-none select-none flex flex-col items-center justify-center font-bold z-50"
+                                                            style={{
+                                                                left: '50%',
+                                                                top: '50%',
+                                                                transform: `translate(-50%, -50%) translate(${obj.variableMonitor.offsetX || 0}px, ${obj.variableMonitor.offsetY || 0}px)`,
+                                                                width: obj.variableMonitor.width ? `${obj.variableMonitor.width}px` : 'auto',
+                                                                minWidth: obj.variableMonitor.width ? 'auto' : 100,
+                                                                padding: (obj.variableMonitor.showBackground ?? true) ? 4 : 0,
+                                                                backgroundColor: (obj.variableMonitor.showBackground ?? true) ? (obj.variableMonitor.backgroundColor || 'rgba(0,0,0,0.5)') : 'transparent',
+                                                                borderRadius: (obj.variableMonitor.showBackground ?? true) ? 8 : 0,
+                                                                fontFamily: 'monospace',
+                                                                color: obj.variableMonitor.textColor || '#FFFFFF'
+                                                            }}
+                                                        >
+                                                            {(() => {
+                                                                const val = runtimeVariables[obj.variableMonitor!.variableId] ?? 0;
+                                                                const vDef = gameData.variables?.find(v => v.id === obj.variableMonitor!.variableId);
+                                                                const name = vDef ? vDef.name : "???";
+
+                                                                if (obj.variableMonitor!.mode === 'TEXT') {
+                                                                    return (
+                                                                        <div className="text-center text-lg whitespace-nowrap">
+                                                                            {(obj.variableMonitor!.showLabel ?? true) && `${name}: `}{val}
+                                                                        </div>
+                                                                    );
+                                                                } else {
+                                                                    const barHeight = obj.variableMonitor!.height || 16;
+                                                                    return (
+                                                                        <div className="flex flex-col gap-1 w-full">
+                                                                            {(obj.variableMonitor!.showLabel ?? true) && (
+                                                                                <div className="text-[10px] uppercase">{name}</div>
+                                                                            )}
+                                                                            <div
+                                                                                className="w-full bg-gray-700 rounded-full overflow-hidden border border-white/20 relative"
+                                                                                style={{ height: `${barHeight}px` }}
+                                                                            >
+                                                                                <div
+                                                                                    className="h-full transition-all duration-300"
+                                                                                    style={{
+                                                                                        width: `${Math.min(100, Math.max(0, (val / (obj.variableMonitor!.maxValue || 100)) * 100))}%`,
+                                                                                        backgroundColor: obj.variableMonitor!.barColor || '#22c55e'
+                                                                                    }}
+                                                                                ></div>
+                                                                                {barHeight >= 12 && (obj.variableMonitor!.showLabel ?? true) && (
+                                                                                    <div className="absolute inset-0 flex items-center justify-center text-[8px] drop-shadow-md text-white">
+                                                                                        {val} / {obj.variableMonitor!.maxValue || 100}
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                }
+                                                            })()}
+                                                        </div>
+                                                    )}
+                                                </>
+                                            )}
+                                        </div>
+                                    </>
                                 );
                             })}
-                        </div>
+                        </div >
 
                         {(status === 'WON' || status === 'LOST' || status === 'TRANSITION') && (
                             <div className="absolute inset-0 bg-black/70 backdrop-blur-sm flex flex-col items-center justify-center animate-in zoom-in duration-300 p-4 z-50">
@@ -1109,7 +1568,8 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                                 {status === 'TRANSITION' && (<div className="text-purple-400 text-center"><DoorOpen size={80} strokeWidth={2} className="mx-auto mb-4 animate-bounce" /><h2 className="text-4xl font-bold">NEXT SCENE...</h2></div>)}
                                 {(status === 'WON' || status === 'LOST') && (<button onClick={() => resetGame(activeSceneId)} className="mt-8 sketch-btn bg-white text-black px-8 py-2 text-2xl font-bold hover:scale-110 transition-transform">TRY AGAIN</button>)}
                             </div>
-                        )}
+                        )
+                        }
                     </div>
                 </div>
                 <div className="w-full flex justify-center items-center px-8 text-gray-500 gap-8">

@@ -43,7 +43,7 @@ export const INITIAL_GAME_DATA: GameData = {
 };
 
 export const INTERACTION_LABELS: Record<InteractionType, string> = {
-  [InteractionType.STEP]: 'Steps',
+  [InteractionType.CHASE]: 'CHASE',
   [InteractionType.SHAKE]: 'Shakes',
   [InteractionType.DESTROY_OBJECT]: 'Eats',
   [InteractionType.DESTROY_SUBJECT]: 'Dies by',
@@ -57,16 +57,21 @@ export const INTERACTION_LABELS: Record<InteractionType, string> = {
   [InteractionType.SAY]: 'SAY',
   [InteractionType.SHOOT]: 'SHOOT',
   [InteractionType.PARTICLES]: 'CONFETTI',
+  [InteractionType.HOLD]: 'HOLDS',
+  [InteractionType.DROP]: 'DROPS',
+  [InteractionType.BLOCK]: 'BLOCKS',
   [InteractionType.NOTHING]: 'NOTHING',
   [InteractionType.THEN]: 'THEN',
   [InteractionType.PUSH]: 'PUSH',
-  [InteractionType.BLOCK]: 'BLOCK',
+  [InteractionType.MOVE]: 'MOVES', // NEW
+  [InteractionType.JUMP]: 'JUMPS',
 };
 
 // NEW: Magnet Definitions categorized
 export const TRIGGER_MAGNETS = [
   { type: RuleTrigger.KEY_PRESS, label: 'KEY', color: '#fcd34d', icon: 'keyboard' }, // Yellow (NEW)
   { type: RuleTrigger.COLLISION, label: 'TOUCH', color: '#fcd34d', icon: 'eye' }, // Yellow
+  { type: RuleTrigger.HIT, label: 'HIT', color: '#fb923c', icon: 'target' }, // Orange (NEW)
   { type: RuleTrigger.CLICK, label: 'CLICK', color: '#fcd34d', icon: 'hand' }, // Yellow
   { type: RuleTrigger.START, label: 'START', color: '#86efac', icon: 'flag' }, // Green
   { type: RuleTrigger.TIMER, label: 'TIMER', color: '#93c5fd', icon: 'hourglass' }, // Blue
@@ -74,8 +79,10 @@ export const TRIGGER_MAGNETS = [
 ];
 
 export const EFFECT_MAGNETS = [
-  { type: InteractionType.STEP, label: 'STEP', color: '#4ade80', icon: 'footprints' }, // Green (Replaces Move)
+  { type: InteractionType.CHASE, label: 'CHASE', color: '#4ade80', icon: 'footprints' }, // Green (Replaces Step)
+  { type: InteractionType.MOVE, label: 'MOVE', color: '#3b82f6', icon: 'map' }, // Blue (Path)
   { type: InteractionType.SHAKE, label: 'SHAKE', color: '#f87171', icon: 'activity' }, // Red (Visual Juice)
+  { type: InteractionType.JUMP, label: 'JUMP', color: '#10b981', icon: 'arrow-down-circle' }, // Emerald
 
   { type: InteractionType.DESTROY_OBJECT, label: 'EAT', color: '#ef4444', icon: 'utensils' }, // Red
   { type: InteractionType.DESTROY_SUBJECT, label: 'DIE', color: '#ef4444', icon: 'skull' }, // Red
@@ -92,6 +99,10 @@ export const EFFECT_MAGNETS = [
   { type: InteractionType.WIN, label: 'WIN', color: '#facc15', icon: 'trophy' }, // Gold
 
   { type: InteractionType.MODIFY_VAR, label: 'SET VAR', color: '#3b82f6', icon: 'hash' }, // Blue Darker (NEW)
+
+  { type: InteractionType.HOLD, label: 'HOLD', color: '#fbbf24', icon: 'hand' }, // Amber
+  { type: InteractionType.DROP, label: 'DROP', color: '#fbbf24', icon: 'arrow-down' }, // Amber
+  { type: InteractionType.WAIT, label: 'WAIT', color: '#9ca3af', icon: 'clock' }, // Gray
 
   { type: InteractionType.THEN, label: 'THEN', color: '#9ca3af', icon: 'timer' }, // Grey/Timer
 ];

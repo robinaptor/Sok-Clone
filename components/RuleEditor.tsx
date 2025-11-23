@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { GameData, Rule, InteractionType, RuleTrigger, Sound, GlobalVariable, RuleEffect } from '../types';
 import { TRIGGER_MAGNETS, EFFECT_MAGNETS, SCENE_WIDTH, SCENE_HEIGHT } from '../constants';
-import { Trash2, Square, ArrowRight, Trophy, HelpCircle, Hand, Eye, DoorOpen, Utensils, Skull, Puzzle, Ban, RotateCw, Globe, MapPin, X, Timer, ChevronsRight, Flag, Hourglass, Sparkles, Crosshair, Volume2, VolumeX, Edit3, Plus, RefreshCw, Clapperboard, ArrowDown, Repeat, Clock, Hash, PlusCircle, Calculator, Settings, MessageCircle, MessageSquare, Keyboard, Footprints, Activity, Dices } from 'lucide-react';
+import { X, Plus, Play, Save, Edit2, Edit3, Trash2, Eye, Hand, Flag, Clock, Square, Utensils, ArrowRight, Trophy, DoorOpen, Skull, Zap, Ban, Timer, Sparkles, RefreshCw, Clapperboard, Hash, PlusCircle, MessageCircle, MessageSquare, Keyboard, Footprints, Activity, Crosshair, Target, ArrowDownCircle, Hourglass, Puzzle, Globe, MapPin, Volume2, VolumeX, Mic, Upload, Download, Info, HelpCircle, Settings, Repeat, ChevronsRight, Dices, RotateCw, ArrowDown, Calculator, Map } from 'lucide-react';
 import { SoundRecorder } from './SoundRecorder';
 
 interface RuleEditorProps {
@@ -54,6 +54,64 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
         variableId: string;
     } | null>(null);
 
+    // State for Hold/Drop Config Modal
+    const [holdConfigModal, setHoldConfigModal] = useState<{
+        ruleId: string;
+        effectIndex: number;
+        type: 'HOLD' | 'DROP';
+        targetActorId?: string;
+        holderActorId?: string;
+        offsetX?: number;
+        offsetY?: number;
+    } | null>(null);
+
+    // NEW: Particle Config Modal
+    const [particleModal, setParticleModal] = useState<{
+        ruleId: string;
+        effectIndex: number;
+        type: 'CONFETTI' | 'EXPLOSION' | 'SPARKLES' | 'RAIN' | 'SMOKE';
+        count?: number;
+        size?: number;
+        area?: number;
+        particleActorId?: string;
+    } | null>(null);
+
+    // NEW: Shoot Config Modal
+    const [shootConfigModal, setShootConfigModal] = useState<{
+        ruleId: string;
+        effectIndex: number;
+        speed: number;
+        angleOffset: number;
+        lifetime: number;
+        shooterId?: string;
+        offsetX?: number;
+        offsetY?: number;
+        projectileSize?: number;
+    } | null>(null);
+
+    // NEW: Chance Config Modal
+    const [chanceModal, setChanceModal] = useState<{ ruleId: string, chance: number } | null>(null);
+
+    // NEW: State for Key Recorder Modal
+    const [keyRecordModal, setKeyRecordModal] = useState<{
+        ruleId: string;
+    } | null>(null);
+
+    // NEW: State for Jump Config Modal
+    const [jumpConfigModal, setJumpConfigModal] = useState<{
+        ruleId: string;
+        effectIndex: number;
+        intensity: number;
+    } | null>(null);
+
+    // NEW: Path Editor Modal
+    const [pathEditorModal, setPathEditorModal] = useState<{
+        ruleId: string;
+        effectIndex: number;
+        path: { x: number, y: number }[];
+    } | null>(null);
+
+
     // NEW: State for Creating/Editing Variable
     const [showNewVarModal, setShowNewVarModal] = useState(false);
     const [editingVarId, setEditingVarId] = useState<string | null>(null);
@@ -66,14 +124,6 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
     const [varConfigOp, setVarConfigOp] = useState<'ADD' | 'SUB' | 'SET' | 'EQUALS' | 'GREATER' | 'LESS'>('ADD');
     const [varConfigVariableId, setVarConfigVariableId] = useState<string>('');
 
-    // NEW: Particle Config Modal
-    const [particleModal, setParticleModal] = useState<{ ruleId: string, effectIndex: number, type: 'CONFETTI' | 'EXPLOSION' | 'SMOKE' | 'RAIN', count: number, size: number, area: number, particleActorId?: string } | null>(null);
-
-    // NEW: Shoot Config Modal
-    const [shootConfigModal, setShootConfigModal] = useState<{ ruleId: string, effectIndex: number, shooterId: string, offsetX: number, offsetY: number, projectileSize: number } | null>(null);
-
-    // NEW: Chance Config Modal
-    const [chanceModal, setChanceModal] = useState<{ ruleId: string, chance: number } | null>(null);
 
     const activeScopeId = viewScope === 'GLOBAL' ? 'GLOBAL' : currentSceneId;
     const filteredRules = gameData.rules.filter(r => r.scope === activeScopeId);
@@ -110,6 +160,11 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
             case 'footprints': return <Footprints size={20} strokeWidth={3} />;
             case 'activity': return <Activity size={20} strokeWidth={3} />;
             case 'crosshair': return <Crosshair size={20} strokeWidth={3} />;
+            case 'target': return <Target size={20} strokeWidth={3} />;
+            case 'arrow-down-circle': return <ArrowDownCircle size={20} strokeWidth={3} />;
+            case 'map': return <Map size={20} strokeWidth={3} />;
+            case 'arrow-down': return <ArrowDown size={20} strokeWidth={3} />;
+            case 'clock': return <Clock size={20} strokeWidth={3} />;
             case 'dice': return <div className="border-2 border-current rounded w-5 h-5 flex items-center justify-center font-bold text-[10px]">50</div>;
             default: return <HelpCircle size={20} />;
         }
@@ -234,7 +289,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
             if (slot === 'effects') {
                 const defaultTarget = interaction === InteractionType.DESTROY_OBJECT ? 'OBJECT' : 'SUBJECT';
 
-                const newEffect: RuleEffect = { type: interaction, target: defaultTarget };
+                let newEffect: RuleEffect = { type: interaction, target: defaultTarget };
 
                 // Handle MODIFY_VAR magnet
                 if (interaction === InteractionType.MODIFY_VAR) {
@@ -246,8 +301,8 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                     }
                 }
 
-                // Handle STEP magnet (Target Selection)
-                if (interaction === InteractionType.STEP) {
+                // Handle CHASE magnet (Target Selection)
+                if (interaction === InteractionType.CHASE) {
                     // We want to select WHO to move towards (optional, but good feature)
                     // If we don't select anyone, it might default to Hero or Forward
                     // Let's open the modal to pick a target actor
@@ -272,8 +327,15 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                     }, 50);
                 }
 
-                // Handle SHOOT magnet
-                if (interaction === InteractionType.SHOOT) {
+                // Handle CHASE magnet
+                if (interaction === InteractionType.CHASE) {
+                    newEffect = {
+                        type: InteractionType.CHASE,
+                        spawnActorId: undefined // Default to chasing Hero
+                    };
+                } else if (interaction === InteractionType.PUSH) {
+                    // No specific default values needed for PUSH beyond the type and default target
+                } else if (interaction === InteractionType.SHOOT) {
                     setTimeout(() => {
                         setSelectionModal({
                             ruleId,
@@ -375,6 +437,39 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
             return;
         }
 
+        // SPECIAL CASE: If we are selecting a sprite for the Shoot Config Modal
+        if (shootConfigModal) {
+            setShootConfigModal({ ...shootConfigModal, shooterId: selectedId });
+            setSelectionModal(null);
+            return;
+        }
+
+        // SPECIAL CASE: Hold/Drop Config
+        if (holdConfigModal) {
+            onUpdateRules(gameData.rules.map(r => {
+                if (r.id === holdConfigModal.ruleId) {
+                    const newEffects = [...r.effects];
+                    const currentConfig = newEffects[holdConfigModal.effectIndex].holdConfig || {};
+
+                    if (selectionModal.label.includes("HOLDER")) {
+                        newEffects[holdConfigModal.effectIndex] = {
+                            ...newEffects[holdConfigModal.effectIndex],
+                            holdConfig: { ...currentConfig, holderActorId: selectedId }
+                        };
+                    } else {
+                        newEffects[holdConfigModal.effectIndex] = {
+                            ...newEffects[holdConfigModal.effectIndex],
+                            holdConfig: { ...currentConfig, targetActorId: selectedId }
+                        };
+                    }
+                    return { ...r, effects: newEffects };
+                }
+                return r;
+            }));
+            setSelectionModal(null);
+            return;
+        }
+
         const { ruleId, effectIndex, type, currentTarget, currentLoop } = selectionModal;
 
         onUpdateRules(gameData.rules.map(r => {
@@ -398,7 +493,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                             target: currentTarget || 'OBJECT',
                             spawnActorId: selectedId
                         };
-                    } else if (currentEffect.type === InteractionType.STEP || currentEffect.type === InteractionType.SHOOT) {
+                    } else if (currentEffect.type === InteractionType.CHASE || currentEffect.type === InteractionType.SHOOT) {
                         newEffects[effectIndex] = {
                             ...currentEffect,
                             spawnActorId: selectedId
@@ -481,10 +576,22 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
         setTextInputModal(null);
     };
 
+    const getTriggerVerb = (rule: Rule): string => {
+        if (rule.trigger === RuleTrigger.COLLISION) return rule.invert ? "TOUCHING" : "TOUCHES";
+        if (rule.trigger === RuleTrigger.HIT) return "HIT BY";
+        if (rule.trigger === RuleTrigger.CLICK) return "CLICK ON";
+        if (rule.trigger === RuleTrigger.START) return "START";
+        if (rule.trigger === RuleTrigger.TIMER) return "EVERY";
+        if (rule.trigger === RuleTrigger.VAR_CHECK) return "IF";
+        if (rule.trigger === RuleTrigger.KEY_PRESS) return "PRESS";
+        return "";
+    };
+
     const getTriggerLabel = (rule: Rule) => {
         if (rule.trigger === RuleTrigger.START) return "GAME STARTS";
         if (rule.trigger === RuleTrigger.TIMER) return "EVERY 2 SEC";
         if (rule.trigger === RuleTrigger.COLLISION) return rule.invert ? "TOUCHING" : "TOUCHES";
+        if (rule.trigger === RuleTrigger.HIT) return "HIT BY";
         if (rule.trigger === RuleTrigger.VAR_CHECK) {
             const v = gameData.variables?.find(v => v.id === rule.variableId);
             const name = v ? v.name : "???";
@@ -878,8 +985,38 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
             {/* --- MODAL: SHOOT CONFIG --- */}
             {shootConfigModal && (
                 <div className="absolute inset-0 z-50 bg-black/50 flex items-center justify-center backdrop-blur-sm animate-in fade-in">
-                    <div className="bg-white p-4 border-4 border-black rounded-xl shadow-2xl flex flex-col items-center gap-4 sketch-box">
+                    <div className="bg-white p-4 border-4 border-black rounded-xl shadow-2xl flex flex-col items-center gap-4 sketch-box w-[350px]">
                         <h3 className="font-bold text-xl">SHOOT CONFIG</h3>
+
+                        {/* SHOOTER SELECTION */}
+                        <div className="flex flex-col gap-2 w-full">
+                            <label className="font-bold text-xs text-gray-500">SHOOTER (OPTIONAL)</label>
+                            <button
+                                onClick={() => setSelectionModal({
+                                    ruleId: shootConfigModal.ruleId,
+                                    effectIndex: shootConfigModal.effectIndex,
+                                    type: 'ACTOR',
+                                    label: "CHOOSE SHOOTER",
+                                    allowTargetSelection: false
+                                })}
+                                className="w-full h-12 border-2 border-black rounded bg-gray-100 hover:bg-gray-200 flex items-center justify-center gap-2"
+                            >
+                                {shootConfigModal.shooterId ? (
+                                    <>
+                                        <img src={getActorImage(shootConfigModal.shooterId)} className="w-8 h-8 object-contain" />
+                                        <span className="text-xs font-bold">CHANGE SHOOTER</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <PlusCircle size={20} />
+                                        <span className="text-xs font-bold">DEFAULT (SUBJECT)</span>
+                                    </>
+                                )}
+                            </button>
+                            {shootConfigModal.shooterId && shootConfigModal.shooterId !== (gameData.rules.find(r => r.id === shootConfigModal.ruleId)?.subjectId) && (
+                                <button onClick={() => setShootConfigModal({ ...shootConfigModal, shooterId: '' })} className="text-xs text-red-500 font-bold underline self-end">RESET TO DEFAULT</button>
+                            )}
+                        </div>
 
                         <div className="flex flex-col gap-2 w-full">
                             <label className="font-bold text-xs text-gray-500">SPAWN POINT</label>
@@ -908,8 +1045,8 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                 <div
                                     className="absolute w-4 h-4 border-2 border-red-500 rounded-full bg-red-500/50 pointer-events-none"
                                     style={{
-                                        left: 100 + shootConfigModal.offsetX - 8,
-                                        top: 100 + shootConfigModal.offsetY - 8
+                                        left: 100 + (shootConfigModal.offsetX || 0) - 8,
+                                        top: 100 + (shootConfigModal.offsetY || 0) - 8
                                     }}
                                 />
                             </div>
@@ -935,11 +1072,15 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                     onUpdateRules(gameData.rules.map(r => {
                                         if (r.id === shootConfigModal.ruleId) {
                                             const newEffects = [...r.effects];
+                                            const ruleSubjectId = r.subjectId;
+                                            const isCustomShooter = shootConfigModal.shooterId && shootConfigModal.shooterId !== ruleSubjectId;
+
                                             newEffects[shootConfigModal.effectIndex] = {
                                                 ...newEffects[shootConfigModal.effectIndex],
-                                                shootOffsetX: shootConfigModal.offsetX,
-                                                shootOffsetY: shootConfigModal.offsetY,
-                                                projectileSize: shootConfigModal.projectileSize
+                                                shootOffsetX: shootConfigModal.offsetX || 0,
+                                                shootOffsetY: shootConfigModal.offsetY || 0,
+                                                projectileSize: shootConfigModal.projectileSize,
+                                                shooterActorId: isCustomShooter ? shootConfigModal.shooterId : undefined
                                             };
                                             return { ...r, effects: newEffects };
                                         }
@@ -994,6 +1135,184 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                     </div>
                 </div>
             )}
+
+            {/* --- MODAL: HOLD/DROP CONFIG --- */}
+            {holdConfigModal && (
+                <div className="absolute inset-0 z-50 bg-black/50 flex items-center justify-center backdrop-blur-sm animate-in fade-in">
+                    <div className="bg-white p-4 border-4 border-black rounded-xl shadow-2xl flex flex-col items-center gap-4 sketch-box w-[350px] max-h-[90vh] overflow-y-auto">
+                        <h3 className="font-bold text-xl uppercase flex items-center gap-2">
+                            {holdConfigModal.type === 'HOLD' ? <Hand size={24} /> : <ArrowDownCircle size={24} />}
+                            {holdConfigModal.type} CONFIG
+                        </h3>
+
+                        {/* TARGET SELECTION (WHAT TO HOLD/DROP) */}
+                        <div className="flex flex-col gap-2 w-full">
+                            <label className="font-bold text-xs text-gray-500">
+                                {holdConfigModal.type === 'HOLD' ? 'PICK UP WHAT?' : 'DROP WHAT?'}
+                            </label>
+                            <button
+                                onClick={() => setSelectionModal({
+                                    ruleId: holdConfigModal.ruleId,
+                                    effectIndex: holdConfigModal.effectIndex,
+                                    type: 'ACTOR',
+                                    label: holdConfigModal.type === 'HOLD' ? "PICK UP WHICH OBJECT?" : "DROP WHICH OBJECT?",
+                                    allowTargetSelection: false
+                                })}
+                                className="w-full h-12 border-2 border-black rounded bg-gray-100 hover:bg-gray-200 flex items-center justify-center gap-2"
+                            >
+                                {(() => {
+                                    const rule = gameData.rules.find(r => r.id === holdConfigModal.ruleId);
+                                    const effect = rule?.effects[holdConfigModal.effectIndex];
+                                    const targetId = effect?.holdConfig?.targetActorId;
+
+                                    if (targetId) {
+                                        return (
+                                            <>
+                                                <img src={getActorImage(targetId)} className="w-8 h-8 object-contain" />
+                                                <span className="text-xs font-bold">SPECIFIC OBJECT</span>
+                                            </>
+                                        );
+                                    }
+                                    return (
+                                        <>
+                                            <div className="text-xs font-bold text-gray-400">DEFAULT (INTERACTED OBJECT)</div>
+                                        </>
+                                    );
+                                })()}
+                            </button>
+                            {gameData.rules.find(r => r.id === holdConfigModal.ruleId)?.effects[holdConfigModal.effectIndex]?.holdConfig?.targetActorId && (
+                                <button
+                                    onClick={() => {
+                                        onUpdateRules(gameData.rules.map(r => {
+                                            if (r.id === holdConfigModal.ruleId) {
+                                                const newEffects = [...r.effects];
+                                                newEffects[holdConfigModal.effectIndex] = {
+                                                    ...newEffects[holdConfigModal.effectIndex],
+                                                    holdConfig: { ...newEffects[holdConfigModal.effectIndex].holdConfig, targetActorId: undefined }
+                                                };
+                                                return { ...r, effects: newEffects };
+                                            }
+                                            return r;
+                                        }));
+                                    }}
+                                    className="text-xs text-red-500 font-bold underline self-end"
+                                >
+                                    RESET TO DEFAULT
+                                </button>
+                            )}
+                        </div>
+
+                        {/* HOLDER SELECTION (WHO HOLDS/DROPS) */}
+                        <div className="flex flex-col gap-2 w-full">
+                            <label className="font-bold text-xs text-gray-500">
+                                {holdConfigModal.type === 'HOLD' ? 'WHO HOLDS IT?' : 'WHO DROPS IT?'}
+                            </label>
+                            <button
+                                onClick={() => setSelectionModal({
+                                    ruleId: holdConfigModal.ruleId,
+                                    effectIndex: holdConfigModal.effectIndex,
+                                    type: 'ACTOR',
+                                    label: "WHO IS THE HOLDER?",
+                                    allowTargetSelection: false
+                                })}
+                                className="w-full h-12 border-2 border-black rounded bg-gray-100 hover:bg-gray-200 flex items-center justify-center gap-2"
+                            >
+                                {(() => {
+                                    const rule = gameData.rules.find(r => r.id === holdConfigModal.ruleId);
+                                    const effect = rule?.effects[holdConfigModal.effectIndex];
+                                    const holderId = effect?.holdConfig?.holderActorId;
+
+                                    if (holderId) {
+                                        return (
+                                            <>
+                                                <img src={getActorImage(holderId)} className="w-8 h-8 object-contain" />
+                                                <span className="text-xs font-bold">SPECIFIC ACTOR</span>
+                                            </>
+                                        );
+                                    }
+                                    return (
+                                        <>
+                                            <div className="text-xs font-bold text-gray-400">DEFAULT (SUBJECT)</div>
+                                        </>
+                                    );
+                                })()}
+                            </button>
+                        </div>
+
+                        {/* OFFSET SELECTION (ONLY FOR HOLD) */}
+                        {holdConfigModal.type === 'HOLD' && (
+                            <div className="flex flex-col gap-2 w-full">
+                                <label className="font-bold text-xs text-gray-500">HOLD POSITION (OFFSET)</label>
+                                <div className="text-xs text-gray-400 mb-1">Click to set where the item is held</div>
+                                <div
+                                    className="relative bg-gray-100 cursor-crosshair border-2 border-black overflow-hidden flex items-center justify-center self-center"
+                                    style={{ width: '200px', height: '200px' }}
+                                    onClick={(e) => {
+                                        const rect = e.currentTarget.getBoundingClientRect();
+                                        const x = e.clientX - rect.left - 100;
+                                        const y = e.clientY - rect.top - 100;
+
+                                        onUpdateRules(gameData.rules.map(r => {
+                                            if (r.id === holdConfigModal.ruleId) {
+                                                const newEffects = [...r.effects];
+                                                const currentConfig = newEffects[holdConfigModal.effectIndex].holdConfig || {};
+                                                newEffects[holdConfigModal.effectIndex] = {
+                                                    ...newEffects[holdConfigModal.effectIndex],
+                                                    holdConfig: { ...currentConfig, offsetX: x, offsetY: y }
+                                                };
+                                                return { ...r, effects: newEffects };
+                                            }
+                                            return r;
+                                        }));
+                                    }}
+                                >
+                                    {/* Render Holder Sprite */}
+                                    {(() => {
+                                        const rule = gameData.rules.find(r => r.id === holdConfigModal.ruleId);
+                                        const effect = rule?.effects[holdConfigModal.effectIndex];
+                                        const holderId = effect?.holdConfig?.holderActorId || rule?.subjectId;
+
+                                        return holderId ? (
+                                            <img src={getActorImage(holderId)} className="w-[100px] h-[100px] object-contain opacity-50" />
+                                        ) : (
+                                            <div className="text-gray-400 font-bold">?</div>
+                                        );
+                                    })()}
+
+                                    {/* Render Item Sprite at Offset */}
+                                    {(() => {
+                                        const rule = gameData.rules.find(r => r.id === holdConfigModal.ruleId);
+                                        const effect = rule?.effects[holdConfigModal.effectIndex];
+                                        const targetId = effect?.holdConfig?.targetActorId || rule?.objectId;
+                                        const offsetX = effect?.holdConfig?.offsetX || 0;
+                                        const offsetY = effect?.holdConfig?.offsetY || 0;
+
+                                        return (
+                                            <div
+                                                className="absolute w-8 h-8 border-2 border-blue-500 bg-blue-500/30 flex items-center justify-center pointer-events-none"
+                                                style={{
+                                                    left: 100 + offsetX - 16,
+                                                    top: 100 + offsetY - 16
+                                                }}
+                                            >
+                                                {targetId ? <img src={getActorImage(targetId)} className="w-full h-full object-contain" /> : <div className="w-2 h-2 bg-blue-500 rounded-full"></div>}
+                                            </div>
+                                        );
+                                    })()}
+                                </div>
+                            </div>
+                        )}
+
+                        <button
+                            onClick={() => setHoldConfigModal(null)}
+                            className="sketch-btn bg-[#22c55e] text-white py-2 font-bold mt-2 w-full"
+                        >
+                            DONE
+                        </button>
+                    </div>
+                </div>
+            )
+            }
             {/* --- LEFT SIDEBAR: TRIGGERS & VARIABLES --- */}
             <div className="w-44 bg-yellow-100 border-[3px] border-black/10 p-4 flex flex-col gap-6 items-center shadow-inner rounded-l-lg overflow-y-auto shrink-0">
                 <div className="w-full flex flex-col items-center gap-4">
@@ -1159,21 +1478,12 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                     {/* KEY TRIGGER CONFIG */}
                                     {rule.trigger === RuleTrigger.KEY_PRESS && (
                                         <button
-                                            onClick={() => {
-                                                const keys: ('UP' | 'DOWN' | 'LEFT' | 'RIGHT')[] = ['UP', 'RIGHT', 'DOWN', 'LEFT'];
-                                                const currentIdx = keys.indexOf(rule.key || 'UP');
-                                                const nextKey = keys[(currentIdx + 1) % keys.length];
-                                                onUpdateRules(gameData.rules.map(r => r.id === rule.id ? { ...r, key: nextKey } : r));
-                                            }}
+                                            onClick={() => setKeyRecordModal({ ruleId: rule.id })}
                                             className="px-3 py-2 bg-yellow-100 border-2 border-yellow-500 border-dashed rounded flex flex-col items-center justify-center hover:bg-yellow-200 min-w-[60px]"
                                         >
                                             <span className="text-[10px] font-bold text-yellow-800">KEY</span>
-                                            <span className="font-bold text-2xl leading-none">
-                                                {rule.key === 'UP' && '⬆️'}
-                                                {rule.key === 'DOWN' && '⬇️'}
-                                                {rule.key === 'LEFT' && '⬅️'}
-                                                {rule.key === 'RIGHT' && '➡️'}
-                                                {!rule.key && '⬆️'}
+                                            <span className="font-bold text-xl leading-none uppercase">
+                                                {rule.key || 'PRESS'}
                                             </span>
                                         </button>
                                     )}
@@ -1204,7 +1514,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                     )}
 
                                     {/* OBJECT SLOT */}
-                                    {rule.trigger === RuleTrigger.COLLISION && (
+                                    {(rule.trigger === RuleTrigger.COLLISION || rule.trigger === RuleTrigger.HIT) && (
                                         <div className={`w-16 h-16 border-2 border-dashed ${rule.objectId ? 'border-black bg-white' : 'border-gray-300 bg-gray-100'} rounded-lg flex items-center justify-center overflow-hidden relative`} onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('bg-blue-100') }} onDragLeave={(e) => e.currentTarget.classList.remove('bg-blue-100')} onDrop={(e) => { e.currentTarget.classList.remove('bg-blue-100'); handleSlotDrop(e, rule.id, 'object') }}>
                                             {rule.objectId ? <img src={getActorImage(rule.objectId)} className="w-full h-full object-contain" /> : <span className="text-xs text-gray-400 font-bold">WHO?</span>}
                                         </div>
@@ -1319,7 +1629,10 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                                             shooterId: rule.subjectId || '',
                                                             offsetX: effect.shootOffsetX || 0,
                                                             offsetY: effect.shootOffsetY || 0,
-                                                            projectileSize: effect.projectileSize || 0.5
+                                                            projectileSize: effect.projectileSize || 0.5,
+                                                            speed: 10, // Default speed
+                                                            angleOffset: 0, // Default angle
+                                                            lifetime: 60 // Default lifetime
                                                         })}
                                                         className="absolute -top-2 -left-2 w-6 h-6 bg-white border-2 border-black rounded-full flex items-center justify-center hover:scale-110 z-10 shadow-sm"
                                                     >
@@ -1381,7 +1694,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                             if (isEat) { borderColor = "border-red-500"; textColor = "text-red-600"; }
 
                                             const targetIcon = effect.target === 'OBJECT' ? rule.objectId : rule.subjectId;
-                                            const showTarget = (isSwap || isAnim || isEat) && (rule.trigger === RuleTrigger.COLLISION || rule.trigger === RuleTrigger.CLICK);
+                                            const showTarget = (isSwap || isAnim || isEat) && (rule.trigger === RuleTrigger.COLLISION || rule.trigger === RuleTrigger.CLICK || rule.trigger === RuleTrigger.HIT);
 
                                             return (
                                                 <div key={idx} className="relative group shrink-0">
@@ -1418,12 +1731,12 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                             );
                                         }
 
-                                        // STEP EFFECT
-                                        if (effect.type === InteractionType.STEP) {
+                                        // CHASE EFFECT
+                                        if (effect.type === InteractionType.CHASE) {
                                             return (
                                                 <div key={idx} className="relative group shrink-0">
                                                     <div className="flex flex-col items-center bg-white border-2 border-green-500 rounded-lg p-2 shadow-sm h-[90px] min-w-[80px] justify-center gap-1">
-                                                        <span className="text-[10px] font-bold text-green-600 uppercase">STEP</span>
+                                                        <span className="text-[10px] font-bold text-green-600 uppercase">CHASE</span>
                                                         <div className="flex gap-1 items-center">
                                                             <div className="flex flex-col items-center scale-90">
                                                                 <button
@@ -1431,7 +1744,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                                                         ruleId: rule.id,
                                                                         effectIndex: idx,
                                                                         type: 'ACTOR',
-                                                                        label: "MOVE TOWARDS WHO?",
+                                                                        label: "CHASE WHO?",
                                                                         allowTargetSelection: false
                                                                     })}
                                                                     className="w-10 h-10 border-2 border-black rounded bg-green-100 hover:bg-green-200 flex items-center justify-center transition-transform hover:scale-105 relative"
@@ -1442,7 +1755,28 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                                             </div>
                                                         </div>
                                                         <div className="text-[8px] bg-green-100 px-2 rounded-full max-w-[70px] truncate mt-1">
-                                                            {effect.spawnActorId ? 'TOWARDS TARGET' : 'TOWARDS HERO'}
+                                                            {effect.spawnActorId ? 'TARGET' : 'HERO'}
+                                                        </div>
+                                                    </div>
+                                                    <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center hover:scale-110 z-10"><X size={14} /></button>
+                                                </div>
+                                            );
+                                        }
+
+                                        // JUMP EFFECT
+                                        if (effect.type === InteractionType.JUMP) {
+                                            return (
+                                                <div key={idx} className="relative group shrink-0">
+                                                    <div className="flex flex-col items-center bg-white border-2 border-emerald-500 rounded-lg p-2 shadow-sm h-[90px] min-w-[80px] justify-center gap-1">
+                                                        <span className="text-[10px] font-bold text-emerald-600 uppercase">JUMP</span>
+                                                        <button
+                                                            onClick={() => setJumpConfigModal({ ruleId: rule.id, effectIndex: idx, intensity: effect.value || 15 })}
+                                                            className="w-10 h-10 border-2 border-black rounded bg-emerald-100 hover:bg-emerald-200 flex items-center justify-center transition-transform hover:scale-105"
+                                                        >
+                                                            <ArrowDownCircle size={20} className="text-emerald-600 rotate-180" />
+                                                        </button>
+                                                        <div className="text-[8px] bg-emerald-100 px-2 rounded-full max-w-[70px] truncate mt-1">
+                                                            POWER: {effect.value || 15}
                                                         </div>
                                                     </div>
                                                     <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center hover:scale-110 z-10"><X size={14} /></button>
@@ -1466,6 +1800,43 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                             );
                                         }
 
+                                        // MOVE EFFECT
+                                        if (effect.type === InteractionType.MOVE) {
+                                            return (
+                                                <div key={idx} className="relative group shrink-0">
+                                                    <div className="flex flex-col items-center bg-white border-2 border-blue-500 rounded-lg p-2 shadow-sm h-[90px] min-w-[80px] justify-center gap-1">
+                                                        <span className="text-[10px] font-bold text-blue-600 uppercase">MOVE</span>
+                                                        <div className="flex gap-1 items-center">
+                                                            <button
+                                                                onClick={() => setPathEditorModal({ ruleId: rule.id, effectIndex: idx, path: effect.path || [] })}
+                                                                className="w-10 h-10 border-2 border-black rounded bg-blue-100 hover:bg-blue-200 flex items-center justify-center transition-transform hover:scale-105"
+                                                            >
+                                                                <Map size={20} className="text-blue-600" />
+                                                            </button>
+                                                            <div className="flex flex-col items-center scale-90">
+                                                                <button
+                                                                    onClick={() => setSelectionModal({
+                                                                        ruleId: rule.id,
+                                                                        effectIndex: idx,
+                                                                        type: 'ACTOR',
+                                                                        label: "MOVE WHO?",
+                                                                        allowTargetSelection: false
+                                                                    })}
+                                                                    className="w-8 h-8 border border-black rounded bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-transform hover:scale-105 relative"
+                                                                >
+                                                                    {effect.spawnActorId ? <img src={getActorImage(effect.spawnActorId)} className="w-full h-full object-contain" /> : <span className="text-[8px] font-bold">HERO</span>}
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                        <div className="text-[8px] bg-blue-100 px-2 rounded-full max-w-[70px] truncate mt-1">
+                                                            {effect.path?.length || 0} PTS
+                                                        </div>
+                                                    </div>
+                                                    <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center hover:scale-110 z-10"><X size={14} /></button>
+                                                </div>
+                                            );
+                                        }
+
                                         // WAIT EFFECT
                                         if (effect.type === InteractionType.WAIT) {
                                             return (
@@ -1475,6 +1846,31 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                                         <div className="w-12 h-10 flex items-center justify-center"><ChevronsRight size={28} className="text-gray-400" /></div>
                                                     </div>
                                                     <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5 w-5 h-5 flex items-center justify-center hover:scale-110 z-10"><X size={12} /></button>
+                                                </div>
+                                            );
+                                        }
+
+                                        // HOLD / DROP EFFECT
+                                        if (effect.type === InteractionType.HOLD || effect.type === InteractionType.DROP) {
+                                            const isHold = effect.type === InteractionType.HOLD;
+                                            return (
+                                                <div key={idx} className="relative group shrink-0">
+                                                    <div className={`flex flex-col items-center bg-white border-2 ${isHold ? 'border-orange-500' : 'border-blue-500'} rounded-lg p-2 shadow-sm h-[90px] min-w-[80px] justify-center gap-1`}>
+                                                        {isHold ? <Hand size={24} className="text-orange-500" /> : <ArrowDownCircle size={24} className="text-blue-500" />}
+                                                        <span className={`text-[10px] font-bold ${isHold ? 'text-orange-800' : 'text-blue-800'} uppercase`}>{isHold ? 'HOLD' : 'DROP'}</span>
+
+                                                        <button
+                                                            onClick={() => setHoldConfigModal({
+                                                                ruleId: rule.id,
+                                                                effectIndex: idx,
+                                                                type: isHold ? 'HOLD' : 'DROP'
+                                                            })}
+                                                            className="w-full py-1 bg-gray-100 hover:bg-gray-200 rounded border border-black/10 text-[8px] font-bold flex items-center justify-center gap-1"
+                                                        >
+                                                            <Settings size={8} /> CONFIG
+                                                        </button>
+                                                    </div>
+                                                    <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center hover:scale-110 z-10"><X size={14} /></button>
                                                 </div>
                                             );
                                         }
@@ -1513,6 +1909,185 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                     </div>
                 ))}
             </div>
-        </div>
+
+            {/* KEY RECORDER MODAL */}
+            {keyRecordModal && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                    <div className="bg-white border-4 border-black rounded-xl p-6 w-[400px] shadow-[8px_8px_0px_rgba(0,0,0,1)] flex flex-col items-center">
+                        <h3 className="text-2xl font-black mb-4 font-['Gochi_Hand']">PRESS ANY KEY</h3>
+                        <div className="w-full h-32 bg-gray-100 border-2 border-dashed border-gray-400 rounded-lg flex items-center justify-center mb-4 relative overflow-hidden">
+                            <div className="animate-pulse text-gray-400 font-bold text-xl">Waiting for input...</div>
+                            <input
+                                autoFocus
+                                className="absolute inset-0 opacity-0 cursor-pointer"
+                                onKeyDown={(e) => {
+                                    e.preventDefault();
+                                    const key = e.key.toUpperCase();
+                                    // Map arrow keys to simplified names if needed, or just use key code
+                                    let finalKey = key;
+                                    if (key === 'ARROWUP') finalKey = 'UP';
+                                    if (key === 'ARROWDOWN') finalKey = 'DOWN';
+                                    if (key === 'ARROWLEFT') finalKey = 'LEFT';
+                                    if (key === 'ARROWRIGHT') finalKey = 'RIGHT';
+                                    if (key === ' ') finalKey = 'SPACE';
+
+                                    onUpdateRules(gameData.rules.map(r => r.id === keyRecordModal.ruleId ? { ...r, key: finalKey } : r));
+                                    setKeyRecordModal(null);
+                                }}
+                                onBlur={() => setKeyRecordModal(null)}
+                            />
+                        </div>
+                        <button
+                            onClick={() => setKeyRecordModal(null)}
+                            className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded font-bold border-2 border-black shadow-[2px_2px_0px_rgba(0,0,0,1)]"
+                        >
+                            CANCEL
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* JUMP CONFIG MODAL */}
+            {jumpConfigModal && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                    <div className="bg-white border-4 border-black rounded-xl p-6 w-[400px] shadow-[8px_8px_0px_rgba(0,0,0,1)]">
+                        <h3 className="text-2xl font-black mb-4 font-['Gochi_Hand']">JUMP POWER</h3>
+
+                        <div className="mb-6">
+                            <label className="block font-bold mb-2">Intensity: {jumpConfigModal.intensity}</label>
+                            <input
+                                type="range"
+                                min="5"
+                                max="40"
+                                step="1"
+                                value={jumpConfigModal.intensity}
+                                onChange={(e) => setJumpConfigModal({ ...jumpConfigModal, intensity: parseInt(e.target.value) })}
+                                className="w-full h-4 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                            />
+                            <div className="flex justify-between text-xs text-gray-500 mt-1">
+                                <span>Low</span>
+                                <span>High</span>
+                            </div>
+                        </div>
+
+                        <div className="flex justify-end gap-2">
+                            <button
+                                onClick={() => setJumpConfigModal(null)}
+                                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded font-bold border-2 border-black shadow-[2px_2px_0px_rgba(0,0,0,1)]"
+                            >
+                                CANCEL
+                            </button>
+                            <button
+                                onClick={() => {
+                                    onUpdateRules(gameData.rules.map(r => {
+                                        if (r.id === jumpConfigModal.ruleId) {
+                                            const newEffects = [...r.effects];
+                                            newEffects[jumpConfigModal.effectIndex] = {
+                                                ...newEffects[jumpConfigModal.effectIndex],
+                                                value: jumpConfigModal.intensity
+                                            };
+                                            return { ...r, effects: newEffects };
+                                        }
+                                        return r;
+                                    }));
+                                    setJumpConfigModal(null);
+                                }}
+                                className="px-4 py-2 bg-emerald-400 hover:bg-emerald-500 text-white rounded font-bold border-2 border-black shadow-[2px_2px_0px_rgba(0,0,0,1)]"
+                            >
+                                SAVE
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {/* PATH EDITOR MODAL */}
+            {pathEditorModal && (
+                <div className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center" onClick={() => setPathEditorModal(null)}>
+                    <div className="bg-white p-4 rounded-xl border-4 border-black shadow-2xl relative max-w-[90vw] max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                        <h3 className="text-xl font-bold mb-4 text-center flex items-center justify-center gap-2">
+                            <Map className="text-blue-500" /> DRAW PATH
+                        </h3>
+
+                        <div className="relative border-2 border-black bg-gray-100 overflow-hidden cursor-crosshair"
+                            style={{ width: SCENE_WIDTH, height: SCENE_HEIGHT, transform: 'scale(0.8)', transformOrigin: 'top center' }}
+                            onClick={(e) => {
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                const x = (e.clientX - rect.left) / 0.8; // Adjust for scale
+                                const y = (e.clientY - rect.top) / 0.8;
+
+                                // Add point
+                                const newPath = [...pathEditorModal.path, { x, y }];
+                                setPathEditorModal({ ...pathEditorModal, path: newPath });
+
+                                // Update rule
+                                onUpdateRules(gameData.rules.map(r => {
+                                    if (r.id === pathEditorModal.ruleId) {
+                                        const newEffects = [...r.effects];
+                                        newEffects[pathEditorModal.effectIndex] = { ...newEffects[pathEditorModal.effectIndex], path: newPath };
+                                        return { ...r, effects: newEffects };
+                                    }
+                                    return r;
+                                }));
+                            }}
+                        >
+                            {/* Background Preview */}
+                            {currentScene && <div className="absolute inset-0 opacity-50 pointer-events-none">
+                                {currentScene.backgroundImage && <img src={currentScene.backgroundImage} className="w-full h-full object-cover" />}
+                            </div>}
+
+                            {/* Grid */}
+                            <div className="absolute inset-0 pointer-events-none opacity-20" style={{ backgroundImage: 'radial-gradient(#000 1px, transparent 1px)', backgroundSize: '20px 20px' }}></div>
+
+                            {/* Path Visualization */}
+                            <svg className="absolute inset-0 pointer-events-none w-full h-full">
+                                <polyline
+                                    points={pathEditorModal.path.map(p => `${p.x},${p.y}`).join(' ')}
+                                    fill="none"
+                                    stroke="#3b82f6"
+                                    strokeWidth="4"
+                                    strokeDasharray="8 4"
+                                />
+                                {pathEditorModal.path.map((p, i) => (
+                                    <g key={i} transform={`translate(${p.x},${p.y})`}>
+                                        <circle r="6" fill="#2563eb" stroke="white" strokeWidth="2" />
+                                        <text y="-10" textAnchor="middle" className="text-[10px] font-bold fill-blue-800 bg-white">#{i + 1}</text>
+                                        {i > 0 && (
+                                            // Arrow direction
+                                            <path d="M -5,-5 L 0,0 L -5,5" stroke="#3b82f6" strokeWidth="2" fill="none" transform={`rotate(${Math.atan2(p.y - pathEditorModal.path[i - 1].y, p.x - pathEditorModal.path[i - 1].x) * 180 / Math.PI}) translate(-15, 0)`} />
+                                        )}
+                                    </g>
+                                ))}
+                            </svg>
+                        </div>
+
+                        <div className="flex justify-between mt-4">
+                            <button
+                                onClick={() => {
+                                    // Clear path
+                                    setPathEditorModal({ ...pathEditorModal, path: [] });
+                                    onUpdateRules(gameData.rules.map(r => {
+                                        if (r.id === pathEditorModal.ruleId) {
+                                            const newEffects = [...r.effects];
+                                            newEffects[pathEditorModal.effectIndex] = { ...newEffects[pathEditorModal.effectIndex], path: [] };
+                                            return { ...r, effects: newEffects };
+                                        }
+                                        return r;
+                                    }));
+                                }}
+                                className="px-4 py-2 bg-red-100 text-red-600 rounded-lg font-bold hover:bg-red-200"
+                            >
+                                CLEAR PATH
+                            </button>
+                            <button
+                                onClick={() => setPathEditorModal(null)}
+                                className="px-6 py-2 bg-black text-white rounded-lg font-bold hover:scale-105 transition-transform"
+                            >
+                                DONE
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div >
     );
 };

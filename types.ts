@@ -1,9 +1,9 @@
-
 export enum ToolMode {
   PROJECTS = 'PROJECTS', // New Home Screen
   DRAW = 'DRAW',
   SCENE = 'SCENE',
   RULES = 'RULES',
+  HELP = 'HELP',
   PLAY = 'PLAY'
 }
 
@@ -33,11 +33,13 @@ export enum RuleTrigger {
   START = 'START', // Triggered when scene loads
   TIMER = 'TIMER',  // Triggered periodically
   VAR_CHECK = 'VAR_CHECK', // Triggered when variable meets condition
-  KEY_PRESS = 'KEY_PRESS' // NEW: Keyboard control
+  KEY_PRESS = 'KEY_PRESS', // NEW: Keyboard control
+  HIT = 'HIT' // NEW: When hit by projectile
 }
 
 export enum InteractionType {
-  STEP = 'STEP', // NEW: Replaces PUSH/BLOCK - Move in direction
+  CHASE = 'CHASE', // Was STEP - Move towards targets PUSH/BLOCK - Move in direction
+  MOVE = 'MOVE', // NEW: Path following
   PUSH = 'PUSH', // Legacy / Strong Push
   BLOCK = 'BLOCK', // Legacy / Solid
   SHAKE = 'SHAKE', // NEW: Screen Shake effect
@@ -52,6 +54,9 @@ export enum InteractionType {
   SAY = 'SAY', // NEW: Dialogue bubble
   SHOOT = 'SHOOT', // NEW: Projectile
   PARTICLES = 'PARTICLES', // NEW: Visual effect
+  HOLD = 'HOLD', // NEW: Inventory
+  DROP = 'DROP', // NEW: Inventory
+  JUMP = 'JUMP', // NEW: Jump effect
   NOTHING = 'NOTHING',
   THEN = 'THEN', // Sequence / Delay modifier
   WAIT = 'WAIT' // NEW: Pause execution
@@ -65,7 +70,7 @@ export interface RuleEffect {
   spawnX?: number;
   spawnY?: number;
   // PARTICLES CONFIG
-  particleType?: 'CONFETTI' | 'EXPLOSION' | 'SMOKE' | 'RAIN';
+  particleType?: 'CONFETTI' | 'EXPLOSION' | 'SMOKE' | 'RAIN' | 'SPARKLES';
   particleCount?: number;
   particleSize?: number;
   particleArea?: number; // Radius
@@ -75,6 +80,7 @@ export interface RuleEffect {
   shootOffsetX?: number;
   shootOffsetY?: number;
   projectileSize?: number; // NEW: Custom size for projectile
+  shooterActorId?: string; // NEW: Custom shooter sprite
   target?: 'SUBJECT' | 'OBJECT'; // Determines if the effect applies to the subject or object
   isLoop?: boolean; // For animations
   // For VARIABLES
@@ -83,6 +89,15 @@ export interface RuleEffect {
   value?: number;
   // For SAY
   text?: string;
+  // For HOLD / DROP
+  holdConfig?: {
+    targetActorId?: string; // Which object to hold/drop (if different from subject/object)
+    holderActorId?: string; // Who holds/drops it
+    offsetX?: number;
+    offsetY?: number;
+  };
+  // For MOVE
+  path?: { x: number, y: number }[];
 }
 
 export interface Rule {
@@ -100,7 +115,8 @@ export interface Rule {
   interval?: number; // NEW: Custom interval in seconds
 
   // For KEY TRIGGER
-  key?: 'UP' | 'DOWN' | 'LEFT' | 'RIGHT';
+  // For KEY TRIGGER
+  key?: string;
 
   effects: RuleEffect[]; // MULTIPLE effects
   invert?: boolean; // The "NOT" logic
@@ -119,13 +135,46 @@ export interface LevelObject {
   actorId: string;
   x: number;
   y: number;
-  isLocked?: boolean; // If true, cannot be dragged in Game Mode
-  isEphemeral?: boolean; // For one-shot animations
+  isLocked?: boolean; // If true, can't be dragged in editor
+
+  // Physics state (runtime only)
+  vx?: number;
+  vy?: number;
+  z?: number; // Altitude (for jumps)
+  vz?: number; // Vertical velocity (for jumps)
+  isEphemeral?: boolean; // If true, not saved to scene (e.g. projectiles)
+  scale?: number; // For projectiles or effects
+  activePath?: {
+    points: { x: number, y: number }[];
+    currentIndex: number;
+    speed: number;
+    loop: boolean;
+  };
+
+  // Inventory state
+  heldBy?: string; // ID of the actor holding this object
+  holdOffsetX?: number; // Offset from the holder's center when held
+  holdOffsetY?: number; // Offset from the holder's center when held
+
+  // HUD state
+  variableMonitor?: {
+    variableId: string;
+    mode: 'TEXT' | 'BAR';
+    displayMode?: 'POPUP' | 'ALWAYS_VISIBLE'; // How to show: button popup or always visible
+    maxValue?: number; // For BAR mode
+    width?: number; // Custom width for bar (in pixels)
+    height?: number; // Custom height for bar (in pixels)
+    showLabel?: boolean; // Show variable name above bar/text
+    showBackground?: boolean; // Show background behind HUD
+    color?: string; // Legacy (maybe used for text?)
+    textColor?: string; // NEW
+    backgroundColor?: string; // NEW: If undefined, transparent
+    barColor?: string; // NEW: For BAR mode
+    offsetX?: number; // Position relative to actor
+    offsetY?: number; // Position relative to actor
+  };
   creationTime?: number;
   activeAnimation?: ActiveAnimation;
-  scale?: number; // Added for visual scaling
-  vx?: number; // Velocity X
-  vy?: number; // Velocity Y
 }
 
 export interface Scene {

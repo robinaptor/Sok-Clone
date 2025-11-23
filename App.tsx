@@ -7,17 +7,18 @@ import { SceneEditor } from './components/SceneEditor';
 import { RuleEditor } from './components/RuleEditor';
 import { GamePlayer } from './components/GamePlayer';
 import { ProjectManager } from './components/ProjectManager';
+import { HelpSection } from './components/HelpSection';
 import { generateGameIdea } from './services/geminiService';
 import { Sparkles, Plus, Download, Upload, FileUp, FileDown, Home, Save, ChevronUp, Paintbrush } from 'lucide-react';
 
 const App: React.FC = () => {
   // Default to PROJECTS view (Home Screen)
   const [view, setView] = useState<ToolMode>(ToolMode.PROJECTS);
-  
+
   const [gameData, setGameData] = useState<GameData>(INITIAL_GAME_DATA);
   const [selectedActorId, setSelectedActorId] = useState<string>(gameData.actors[0]?.id || '');
   const [currentSceneId, setCurrentSceneId] = useState<string>(INITIAL_GAME_DATA.scenes[0].id);
-  
+
   // New state to track if we are editing a scene background instead of an actor
   const [editingSceneBackgroundId, setEditingSceneBackgroundId] = useState<string | null>(null);
 
@@ -38,10 +39,10 @@ const App: React.FC = () => {
 
   const saveProjectToStorage = (dataToSave: GameData) => {
     const updatedProject = { ...dataToSave, lastModified: Date.now() };
-    
+
     const existingIdx = savedProjects.findIndex(p => p.id === updatedProject.id);
     let newProjects = [...savedProjects];
-    
+
     if (existingIdx >= 0) {
       newProjects[existingIdx] = updatedProject;
     } else {
@@ -91,7 +92,7 @@ const App: React.FC = () => {
   const handleGoHome = () => {
     // Auto-save on exit if current project exists
     if (view !== ToolMode.PROJECTS) {
-       saveProjectToStorage(gameData);
+      saveProjectToStorage(gameData);
     }
     setView(ToolMode.PROJECTS);
   };
@@ -101,13 +102,13 @@ const App: React.FC = () => {
     const canvas = document.createElement('canvas');
     canvas.width = CANVAS_SIZE;
     canvas.height = CANVAS_SIZE;
-    
+
     const newActor: Actor = {
       id: Math.random().toString(36).substr(2, 9),
       name: `Thing ${gameData.actors.length + 1}`,
       imageData: canvas.toDataURL()
     };
-    
+
     setGameData(prev => ({ ...prev, actors: [...prev.actors, newActor] }));
     setSelectedActorId(newActor.id);
     setEditingSceneBackgroundId(null); // Ensure we exit BG edit mode
@@ -117,111 +118,111 @@ const App: React.FC = () => {
   // Handles updates from SpriteEditor (both for Actors AND Scene Backgrounds)
   const updateSprite = (updated: Actor) => {
     if (editingSceneBackgroundId) {
-        // We are editing a Scene Background
-        setGameData(prev => ({
-            ...prev,
-            scenes: prev.scenes.map(s => {
-                if (s.id === editingSceneBackgroundId) {
-                    return {
-                        ...s,
-                        backgroundImage: updated.imageData,
-                        backgroundFrames: updated.frames
-                    };
-                }
-                return s;
-            })
-        }));
+      // We are editing a Scene Background
+      setGameData(prev => ({
+        ...prev,
+        scenes: prev.scenes.map(s => {
+          if (s.id === editingSceneBackgroundId) {
+            return {
+              ...s,
+              backgroundImage: updated.imageData,
+              backgroundFrames: updated.frames
+            };
+          }
+          return s;
+        })
+      }));
     } else {
-        // We are editing a standard Actor
-        setGameData(prev => ({
-            ...prev,
-            actors: prev.actors.map(a => a.id === updated.id ? updated : a)
-        }));
+      // We are editing a standard Actor
+      setGameData(prev => ({
+        ...prev,
+        actors: prev.actors.map(a => a.id === updated.id ? updated : a)
+      }));
     }
   };
 
   const deleteActor = (id: string) => {
     // If we are in BG edit mode, "Delete" just clears the BG
     if (editingSceneBackgroundId) {
-        setGameData(prev => ({
-            ...prev,
-            scenes: prev.scenes.map(s => {
-                if (s.id === editingSceneBackgroundId) {
-                    return { ...s, backgroundImage: undefined, backgroundFrames: undefined };
-                }
-                return s;
-            })
-        }));
-        return;
+      setGameData(prev => ({
+        ...prev,
+        scenes: prev.scenes.map(s => {
+          if (s.id === editingSceneBackgroundId) {
+            return { ...s, backgroundImage: undefined, backgroundFrames: undefined };
+          }
+          return s;
+        })
+      }));
+      return;
     }
 
     if (gameData.actors.length <= 1) return; // Keep at least one
-    
+
     setGameData(prev => ({
       ...prev,
       actors: prev.actors.filter(a => a.id !== id),
       scenes: prev.scenes.map(scene => ({
-          ...scene,
-          objects: scene.objects.filter(obj => obj.actorId !== id)
+        ...scene,
+        objects: scene.objects.filter(obj => obj.actorId !== id)
       })),
       rules: prev.rules.filter(r => r.subjectId !== id && r.objectId !== id)
     }));
-    
+
     if (selectedActorId === id) setSelectedActorId(gameData.actors[0].id);
   };
 
   // --- SCENE LOGIC ---
   const addScene = () => {
-      const newId = `scene_${gameData.scenes.length + 1}`;
-      setGameData(prev => ({
-          ...prev,
-          scenes: [...prev.scenes, { id: newId, objects: [] }]
-      }));
-      setCurrentSceneId(newId);
+    const newId = `scene_${gameData.scenes.length + 1}`;
+    setGameData(prev => ({
+      ...prev,
+      scenes: [...prev.scenes, { id: newId, objects: [] }]
+    }));
+    setCurrentSceneId(newId);
   };
 
   const updateCurrentSceneLevel = (objects: LevelObject[]) => {
-      setGameData(prev => ({
-          ...prev,
-          scenes: prev.scenes.map(s => s.id === currentSceneId ? { ...s, objects } : s)
-      }));
+    setGameData(prev => ({
+      ...prev,
+      scenes: prev.scenes.map(s => s.id === currentSceneId ? { ...s, objects } : s)
+    }));
   };
 
   const handleNextScene = () => {
-      const currentIndex = gameData.scenes.findIndex(s => s.id === currentSceneId);
-      if (currentIndex >= 0 && currentIndex < gameData.scenes.length - 1) {
-          setCurrentSceneId(gameData.scenes[currentIndex + 1].id);
-      } else {
-          setCurrentSceneId(gameData.scenes[0].id);
-      }
+    const currentIndex = gameData.scenes.findIndex(s => s.id === currentSceneId);
+    if (currentIndex >= 0 && currentIndex < gameData.scenes.length - 1) {
+      setCurrentSceneId(gameData.scenes[currentIndex + 1].id);
+    } else {
+      setCurrentSceneId(gameData.scenes[0].id);
+    }
   };
 
   // --- SCENE BACKGROUND LOGIC ---
   const handleEditSceneBackground = () => {
-      setEditingSceneBackgroundId(currentSceneId);
-      setView(ToolMode.DRAW);
+    setEditingSceneBackgroundId(currentSceneId);
+    setView(ToolMode.DRAW);
   };
 
   const handleUpdateBackground = (bgImage: string | undefined) => {
-      setGameData(prev => ({
-          ...prev,
-          scenes: prev.scenes.map(s => {
-              if (s.id === currentSceneId) {
-                  return { 
-                      ...s, 
-                      backgroundImage: bgImage,
-                      // Clear frames if we upload a static image, 
-                      // otherwise keep them if we are just triggering update
-                      backgroundFrames: bgImage ? undefined : s.backgroundFrames 
-                  };
-              }
-              return s;
-          })
-      }));
+    setGameData(prev => ({
+      ...prev,
+      scenes: prev.scenes.map(s => {
+        if (s.id === currentSceneId) {
+          return {
+            ...s,
+            backgroundImage: bgImage,
+            // Clear frames if we upload a static image, 
+            // otherwise keep them if we are just triggering update
+            backgroundFrames: bgImage ? undefined : s.backgroundFrames
+          };
+        }
+        return s;
+      })
+    }));
   };
 
   const updateRules = (rules: Rule[]) => setGameData(prev => ({ ...prev, rules }));
-  const updateSounds = (sounds: Sound[]) => setGameData(prev => ({ ...prev, sounds })); 
+  const updateSounds = (sounds: Sound[]) => setGameData(prev => ({ ...prev, sounds }));
   const updateVariables = (variables: GlobalVariable[]) => setGameData(prev => ({ ...prev, variables }));
   const updateTitle = (title: string) => setGameData(prev => ({ ...prev, title }));
 
@@ -243,7 +244,7 @@ const App: React.FC = () => {
       setGameData(newProject);
       setSelectedActorId(newProject.actors?.[0]?.id || '');
       if (newProject.scenes && newProject.scenes.length > 0) {
-          setCurrentSceneId(newProject.scenes[0].id);
+        setCurrentSceneId(newProject.scenes[0].id);
       }
       setEditingSceneBackgroundId(null);
       setView(ToolMode.SCENE);
@@ -271,7 +272,7 @@ const App: React.FC = () => {
         try {
           const data = JSON.parse(evt.target?.result as string);
           if (!data.scenes && data.level) {
-              data.scenes = [{ id: 'scene_1', objects: data.level }];
+            data.scenes = [{ id: 'scene_1', objects: data.level }];
           }
           // Assign a new random ID to avoid conflict with existing local projects
           data.id = Math.random().toString(36).substr(2, 9);
@@ -287,7 +288,7 @@ const App: React.FC = () => {
     e.dataTransfer.setData("actorId", actorId);
     e.dataTransfer.setData("type", "NEW_FROM_BAR");
     if (view !== ToolMode.RULES && view !== ToolMode.SCENE) {
-        setView(ToolMode.SCENE);
+      setView(ToolMode.SCENE);
     }
   };
 
@@ -295,30 +296,30 @@ const App: React.FC = () => {
   // When in DRAW mode, if we are editing a background, construct a fake "Actor" object
   // so the SpriteEditor can understand it.
   const getActorToEdit = (): Actor => {
-      if (editingSceneBackgroundId) {
-          const scene = gameData.scenes.find(s => s.id === editingSceneBackgroundId);
-          // Default blank canvas if no BG
-          const blankCanvas = document.createElement('canvas');
-          blankCanvas.width = CANVAS_SIZE;
-          blankCanvas.height = CANVAS_SIZE;
-          const blankData = blankCanvas.toDataURL();
+    if (editingSceneBackgroundId) {
+      const scene = gameData.scenes.find(s => s.id === editingSceneBackgroundId);
+      // Default blank canvas if no BG
+      const blankCanvas = document.createElement('canvas');
+      blankCanvas.width = CANVAS_SIZE;
+      blankCanvas.height = CANVAS_SIZE;
+      const blankData = blankCanvas.toDataURL();
 
-          return {
-              id: `BG_${scene?.id || 'temp'}`,
-              name: 'Scene Background',
-              imageData: scene?.backgroundImage || blankData,
-              frames: scene?.backgroundFrames
-          };
-      } else {
-          return gameData.actors.find(a => a.id === selectedActorId)!;
-      }
+      return {
+        id: `BG_${scene?.id || 'temp'}`,
+        name: 'Scene Background',
+        imageData: scene?.backgroundImage || blankData,
+        frames: scene?.backgroundFrames
+      };
+    } else {
+      return gameData.actors.find(a => a.id === selectedActorId)!;
+    }
   };
 
   // --- RENDER VIEWS ---
 
   if (view === ToolMode.PROJECTS) {
     return (
-      <ProjectManager 
+      <ProjectManager
         savedProjects={savedProjects}
         onLoadProject={handleLoadProject}
         onNewProject={handleNewProject}
@@ -329,28 +330,28 @@ const App: React.FC = () => {
 
   if (view === ToolMode.PLAY) {
     return (
-        <GamePlayer 
-            gameData={gameData} 
-            currentSceneId={currentSceneId} 
-            onExit={() => setView(ToolMode.SCENE)} 
-            onNextScene={handleNextScene}
-        />
+      <GamePlayer
+        gameData={gameData}
+        currentSceneId={currentSceneId}
+        onExit={() => setView(ToolMode.SCENE)}
+        onNextScene={handleNextScene}
+      />
     );
   }
 
   const Tab = ({ mode, label }: { mode: ToolMode, label: string }) => (
     <button
       onClick={() => {
-          setView(mode);
-          // If switching away from DRAW manually, assume we are done editing BG
-          if (mode !== ToolMode.DRAW) {
-              setEditingSceneBackgroundId(null);
-          }
+        setView(mode);
+        // If switching away from DRAW manually, assume we are done editing BG
+        if (mode !== ToolMode.DRAW) {
+          setEditingSceneBackgroundId(null);
+        }
       }}
       className={`
         px-6 py-2 text-xl font-bold border-x-2 border-t-2 border-black rounded-t-xl mx-1 transition-all relative top-[3px] z-10
-        ${view === mode 
-          ? 'bg-white pb-3 rotate-0 translate-y-0 shadow-sm' 
+        ${view === mode
+          ? 'bg-white pb-3 rotate-0 translate-y-0 shadow-sm'
           : 'bg-gray-200 text-gray-500 hover:bg-gray-100 rotate-1 translate-y-1'}
       `}
       style={{ borderRadius: '12px 12px 0 0' }}
@@ -361,51 +362,51 @@ const App: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen bg-[#fdfbf7] text-black font-['Gochi_Hand'] overflow-hidden">
-      
+
       {/* HEADER */}
       <header className="h-16 px-4 flex items-center justify-between border-b-[3px] border-black bg-white relative z-20 shadow-sm shrink-0">
         <div className="flex items-center gap-4">
           {/* HOME BUTTON */}
           <button onClick={handleGoHome} className="hover:scale-110 transition-transform" title="Back to Projects">
-              <div className="bg-gray-200 p-2 rounded-full border-2 border-black">
-                  <Home size={20} />
-              </div>
+            <div className="bg-gray-200 p-2 rounded-full border-2 border-black">
+              <Home size={20} />
+            </div>
           </button>
 
           <h1 className="text-3xl font-bold tracking-widest rotate-[-2deg] ml-2 underline decoration-wavy decoration-pink-300 hidden md:block">SOK-CLONE</h1>
-          
+
           <div className="hidden md:flex items-center sketch-box px-3 py-0.5 bg-yellow-50 ml-4 h-10 rotate-1">
             <Sparkles size={18} className="text-purple-500 mr-2 animate-pulse" />
-            <input 
-                value={prompt}
-                onChange={e => setPrompt(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleGenerate()}
-                placeholder={isGenerating ? "Dreaming..." : "Tell me a game idea..."}
-                disabled={isGenerating}
-                className="bg-transparent outline-none w-64 text-lg placeholder-gray-400 font-['Gochi_Hand']"
+            <input
+              value={prompt}
+              onChange={e => setPrompt(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleGenerate()}
+              placeholder={isGenerating ? "Dreaming..." : "Tell me a game idea..."}
+              disabled={isGenerating}
+              className="bg-transparent outline-none w-64 text-lg placeholder-gray-400 font-['Gochi_Hand']"
             />
           </div>
         </div>
 
         <div className="flex gap-3 mr-2 items-center">
-            {/* QUICK SAVE BTN */}
-            <button 
-                onClick={() => { saveProjectToStorage(gameData); alert("Project Saved!"); }} 
-                className="sketch-btn w-10 h-10 bg-blue-100 flex items-center justify-center" 
-                title="Save to My Projects"
-            >
-                <Save size={20} className="text-blue-600" />
-            </button>
+          {/* QUICK SAVE BTN */}
+          <button
+            onClick={() => { saveProjectToStorage(gameData); alert("Project Saved!"); }}
+            className="sketch-btn w-10 h-10 bg-blue-100 flex items-center justify-center"
+            title="Save to My Projects"
+          >
+            <Save size={20} className="text-blue-600" />
+          </button>
 
-            <div className="h-6 w-[2px] bg-gray-300 mx-1"></div>
+          <div className="h-6 w-[2px] bg-gray-300 mx-1"></div>
 
-            <label className="cursor-pointer w-10 h-10 hover:bg-gray-100 rounded-full flex items-center justify-center" title="Import JSON">
-                <FileUp size={24} />
-                <input type="file" onChange={handleImport} className="hidden" accept=".json" />
-            </label>
-            <button onClick={handleExport} className="w-10 h-10 hover:bg-gray-100 rounded-full flex items-center justify-center" title="Export JSON">
-                <FileDown size={24} />
-            </button>
+          <label className="cursor-pointer w-10 h-10 hover:bg-gray-100 rounded-full flex items-center justify-center" title="Import JSON">
+            <FileUp size={24} />
+            <input type="file" onChange={handleImport} className="hidden" accept=".json" />
+          </label>
+          <button onClick={handleExport} className="w-10 h-10 hover:bg-gray-100 rounded-full flex items-center justify-center" title="Export JSON">
+            <FileDown size={24} />
+          </button>
         </div>
       </header>
 
@@ -413,122 +414,126 @@ const App: React.FC = () => {
       <div className="flex px-6 border-b-[3px] border-black bg-[#e5e5e5] pt-3 shrink-0">
         {/* If editing BG, show special Label */}
         {editingSceneBackgroundId ? (
-            <div className="px-6 py-2 text-xl font-bold border-x-2 border-t-2 border-black rounded-t-xl mx-1 bg-purple-100 pb-3 relative top-[3px] z-10 flex items-center gap-2">
-                <Paintbrush size={18}/> EDITING BACKGROUND
-            </div>
+          <div className="px-6 py-2 text-xl font-bold border-x-2 border-t-2 border-black rounded-t-xl mx-1 bg-purple-100 pb-3 relative top-[3px] z-10 flex items-center gap-2">
+            <Paintbrush size={18} /> EDITING BACKGROUND
+          </div>
         ) : (
-            <Tab mode={ToolMode.DRAW} label="Draw" />
+          <Tab mode={ToolMode.DRAW} label="Draw" />
         )}
         <Tab mode={ToolMode.SCENE} label="Place" />
         <Tab mode={ToolMode.RULES} label="Rules" />
+        <Tab mode={ToolMode.HELP} label="Aide" />
       </div>
 
       {/* MAIN WORKSPACE */}
       <main className="flex-1 relative bg-[#fdfbf7] overflow-hidden flex flex-col">
-         <div 
-            className="absolute inset-0 pointer-events-none opacity-10 z-0"
-            style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'20\' height=\'20\' viewBox=\'0 0 20 20\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'%239C92AC\' fill-opacity=\'0.4\' fill-rule=\'evenodd\'%3E%3Ccircle cx=\'3\' cy=\'3\' r=\'1\'/%3E%3C/g%3E%3C/svg%3E")' }} 
-         />
+        <div
+          className="absolute inset-0 pointer-events-none opacity-10 z-0"
+          style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'20\' height=\'20\' viewBox=\'0 0 20 20\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'%239C92AC\' fill-opacity=\'0.4\' fill-rule=\'evenodd\'%3E%3Ccircle cx=\'3\' cy=\'3\' r=\'1\'/%3E%3C/g%3E%3C/svg%3E")' }}
+        />
 
-         <div className="flex-1 w-full h-full overflow-hidden relative z-10">
-            {view === ToolMode.DRAW && (
-                <SpriteEditor 
-                    key={editingSceneBackgroundId ? 'BG_EDIT' : selectedActorId} 
-                    actor={getActorToEdit()}
-                    onUpdate={updateSprite}
-                    onDelete={deleteActor}
-                    isHero={!editingSceneBackgroundId && selectedActorId === 'hero'}
-                />
-            )}
-            {view === ToolMode.SCENE && (
-                <SceneEditor 
-                    gameData={gameData}
-                    currentSceneId={currentSceneId}
-                    onSwitchScene={setCurrentSceneId}
-                    onAddScene={addScene}
-                    onUpdateCurrentScene={updateCurrentSceneLevel}
-                    selectedActorId={selectedActorId}
-                    onPlay={() => setView(ToolMode.PLAY)}
-                    onSave={() => { saveProjectToStorage(gameData); alert("Project Saved!"); }}
-                    onOpenRules={() => setView(ToolMode.RULES)}
-                    onChangeTitle={updateTitle}
-                    onEditBackground={handleEditSceneBackground}
-                    onUpdateBackground={handleUpdateBackground}
-                />
-            )}
-            {view === ToolMode.RULES && (
-                <div className="h-full overflow-hidden p-4 pb-24">
-                    <RuleEditor 
-                        gameData={gameData} 
-                        onUpdateRules={updateRules} 
-                        onUpdateSounds={updateSounds} 
-                        onUpdateVariables={updateVariables}
-                        currentSceneId={currentSceneId} 
-                    />
-                </div>
-            )}
-         </div>
+        <div className="flex-1 w-full h-full overflow-hidden relative z-10">
+          {view === ToolMode.DRAW && (
+            <SpriteEditor
+              key={editingSceneBackgroundId ? 'BG_EDIT' : selectedActorId}
+              actor={getActorToEdit()}
+              onUpdate={updateSprite}
+              onDelete={deleteActor}
+              isHero={!editingSceneBackgroundId && selectedActorId === 'hero'}
+            />
+          )}
+          {view === ToolMode.SCENE && (
+            <SceneEditor
+              gameData={gameData}
+              currentSceneId={currentSceneId}
+              onSwitchScene={setCurrentSceneId}
+              onAddScene={addScene}
+              onUpdateCurrentScene={updateCurrentSceneLevel}
+              selectedActorId={selectedActorId}
+              onPlay={() => setView(ToolMode.PLAY)}
+              onSave={() => { saveProjectToStorage(gameData); alert("Project Saved!"); }}
+              onOpenRules={() => setView(ToolMode.RULES)}
+              onChangeTitle={updateTitle}
+              onEditBackground={handleEditSceneBackground}
+              onUpdateBackground={handleUpdateBackground}
+            />
+          )}
+          {view === ToolMode.RULES && (
+            <div className="h-full overflow-hidden p-4 pb-24">
+              <RuleEditor
+                gameData={gameData}
+                onUpdateRules={updateRules}
+                onUpdateSounds={updateSounds}
+                onUpdateVariables={updateVariables}
+                currentSceneId={currentSceneId}
+              />
+            </div>
+          )}
+          {view === ToolMode.HELP && (
+            <HelpSection />
+          )}
+        </div>
       </main>
 
       {/* BOTTOM ACTOR STRIP - SLIDING PANEL (Hide when editing Background) */}
       {!editingSceneBackgroundId && (
-          <div className="fixed bottom-0 w-full z-40 transition-transform duration-300 ease-out translate-y-[calc(100%-24px)] hover:translate-y-0 group">
-              
-              {/* HOVER TAB / HANDLE (Visible when collapsed) */}
-              <div className="absolute -top-8 left-1/2 -translate-x-1/2 w-32 h-10 bg-[#ffbad2] border-t-[4px] border-x-[4px] border-black rounded-t-2xl flex items-center justify-center cursor-pointer group-hover:opacity-0 transition-opacity duration-200 shadow-md">
-                  <ChevronUp size={24} className="text-black/50 animate-bounce" />
-              </div>
+        <div className="fixed bottom-0 w-full z-40 transition-transform duration-300 ease-out translate-y-[calc(100%-24px)] hover:translate-y-0 group">
 
-              <div className="h-32 bg-[#ffbad2] border-t-[4px] border-black flex items-center px-6 gap-6 w-full overflow-x-auto shadow-[0px_-4px_15px_rgba(0,0,0,0.1)] relative">
-                  
-                  {/* "ITEMS" Label for clarity when open */}
-                  <div className="absolute top-0 left-0 bg-black text-white text-[10px] font-bold px-2 py-0.5 rounded-br">
-                      PROJECT ITEMS
-                  </div>
+          {/* HOVER TAB / HANDLE (Visible when collapsed) */}
+          <div className="absolute -top-8 left-1/2 -translate-x-1/2 w-32 h-10 bg-[#ffbad2] border-t-[4px] border-x-[4px] border-black rounded-t-2xl flex items-center justify-center cursor-pointer group-hover:opacity-0 transition-opacity duration-200 shadow-md">
+            <ChevronUp size={24} className="text-black/50 animate-bounce" />
+          </div>
 
-                  <button 
-                    onClick={addActor}
-                    className="h-24 w-24 flex flex-col items-center justify-center bg-white border-[3px] border-black rounded-2xl hover:bg-gray-50 flex-shrink-0 shadow-md transform hover:-rotate-3 transition-transform group/btn"
-                  >
-                      <Plus size={48} className="text-gray-400 group-hover/btn:text-black transition-colors" />
-                      <span className="text-sm font-bold text-gray-400 group-hover/btn:text-black">NEW</span>
-                  </button>
+          <div className="h-32 bg-[#ffbad2] border-t-[4px] border-black flex items-center px-6 gap-6 w-full overflow-x-auto shadow-[0px_-4px_15px_rgba(0,0,0,0.1)] relative">
 
-                  <div className="h-20 w-[3px] bg-black/10 rounded-full mx-2" />
+            {/* "ITEMS" Label for clarity when open */}
+            <div className="absolute top-0 left-0 bg-black text-white text-[10px] font-bold px-2 py-0.5 rounded-br">
+              PROJECT ITEMS
+            </div>
 
-                  {gameData.actors.map(actor => (
-                      <button
-                        key={actor.id}
-                        draggable="true"
-                        onDragStart={(e) => handleDragStart(e, actor.id)}
-                        onClick={() => {
-                            setSelectedActorId(actor.id);
-                            if(view === ToolMode.RULES) return; 
-                            setView(ToolMode.DRAW);
-                        }}
-                        className={`
+            <button
+              onClick={addActor}
+              className="h-24 w-24 flex flex-col items-center justify-center bg-white border-[3px] border-black rounded-2xl hover:bg-gray-50 flex-shrink-0 shadow-md transform hover:-rotate-3 transition-transform group/btn"
+            >
+              <Plus size={48} className="text-gray-400 group-hover/btn:text-black transition-colors" />
+              <span className="text-sm font-bold text-gray-400 group-hover/btn:text-black">NEW</span>
+            </button>
+
+            <div className="h-20 w-[3px] bg-black/10 rounded-full mx-2" />
+
+            {gameData.actors.map(actor => (
+              <button
+                key={actor.id}
+                draggable="true"
+                onDragStart={(e) => handleDragStart(e, actor.id)}
+                onClick={() => {
+                  setSelectedActorId(actor.id);
+                  if (view === ToolMode.RULES) return;
+                  setView(ToolMode.DRAW);
+                }}
+                className={`
                             relative h-24 w-24 bg-white border-[3px] rounded-xl flex items-center justify-center flex-shrink-0 transition-all duration-200 overflow-hidden cursor-grab active:cursor-grabbing
                             ${selectedActorId === actor.id && view !== ToolMode.RULES
-                                ? 'border-black shadow-[6px_6px_0px_0px_black] -translate-y-3 rotate-[-2deg]' 
-                                : 'border-black/40 hover:border-black hover:-translate-y-1 hover:rotate-1'}
+                    ? 'border-black shadow-[6px_6px_0px_0px_black] -translate-y-3 rotate-[-2deg]'
+                    : 'border-black/40 hover:border-black hover:-translate-y-1 hover:rotate-1'}
                         `}
-                      >
-                          <img 
-                            src={actor.imageData} 
-                            alt={actor.name}
-                            className="w-full h-full object-contain p-1 pointer-events-none"
-                          />
-                          
-                          {selectedActorId === actor.id && view !== ToolMode.RULES && (
-                              <div className="absolute -top-4 -right-2 bg-yellow-300 text-black text-sm font-bold px-3 py-1 border-2 border-black rounded-full rotate-12 shadow-sm z-10">
-                                  EDIT
-                              </div>
-                          )}
-                      </button>
-                  ))}
-                  <div className="w-10 flex-shrink-0"></div>
-              </div>
+              >
+                <img
+                  src={actor.imageData}
+                  alt={actor.name}
+                  className="w-full h-full object-contain p-1 pointer-events-none"
+                />
+
+                {selectedActorId === actor.id && view !== ToolMode.RULES && (
+                  <div className="absolute -top-4 -right-2 bg-yellow-300 text-black text-sm font-bold px-3 py-1 border-2 border-black rounded-full rotate-12 shadow-sm z-10">
+                    EDIT
+                  </div>
+                )}
+              </button>
+            ))}
+            <div className="w-10 flex-shrink-0"></div>
           </div>
+        </div>
       )}
 
     </div>
