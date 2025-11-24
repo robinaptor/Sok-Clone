@@ -66,6 +66,16 @@ export const MusicManager: React.FC<MusicManagerProps> = ({ gameData, onUpdateMu
                     let isPlaying = true;
 
                     // Scheduler function
+                    // Scheduler function
+                    const getFrequency = (noteName: string) => {
+                         const NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+                         const note = noteName.slice(0, -1);
+                         const octave = parseInt(noteName.slice(-1));
+                         const noteIndex = NOTES.indexOf(note);
+                         const semitonesFromA4 = (noteIndex - 9) + (octave - 4) * 12;
+                         return 440 * Math.pow(2, semitonesFromA4 / 12);
+                    };
+
                     const scheduler = () => {
                          if (!isPlaying) return;
 
@@ -73,22 +83,52 @@ export const MusicManager: React.FC<MusicManagerProps> = ({ gameData, onUpdateMu
                               // Schedule notes for current step
                               const notesInStep = track.sequence!.filter(n => n.time === currentStep);
                               notesInStep.forEach(note => {
-                                   const osc = ctx.createOscillator();
-                                   const gain = ctx.createGain();
-                                   osc.connect(gain);
-                                   gain.connect(ctx.destination);
+                                   // Check for Custom Rows
+                                   if (track.rows) {
+                                        const row = track.rows[note.note];
+                                        if (row) {
+                                             if (!row.isMuted) {
+                                                  const volume = row.volume ?? 1.0;
+                                                  if (row.type === 'SAMPLE' && row.sampleData) {
+                                                       const sound = new Audio(row.sampleData);
+                                                       sound.volume = volume;
+                                                       sound.play().catch(e => console.error("Error playing sample", e));
+                                                  } else if (row.type === 'SYNTH' && row.note) {
+                                                       const osc = ctx.createOscillator();
+                                                       const gain = ctx.createGain();
+                                                       osc.connect(gain);
+                                                       gain.connect(ctx.destination);
 
-                                   // Frequency calculation
-                                   const baseFreq = 261.63; // C4
-                                   const freq = baseFreq * Math.pow(2, note.note / 12);
-                                   osc.frequency.value = freq;
-                                   osc.type = 'square';
+                                                       osc.frequency.value = getFrequency(row.note);
+                                                       osc.type = 'square';
 
-                                   gain.gain.setValueAtTime(0.1, nextNoteTime);
-                                   gain.gain.linearRampToValueAtTime(0.001, nextNoteTime + 0.2);
+                                                       gain.gain.setValueAtTime(0.1 * volume, nextNoteTime);
+                                                       gain.gain.linearRampToValueAtTime(0.001, nextNoteTime + 0.2);
 
-                                   osc.start(nextNoteTime);
-                                   osc.stop(nextNoteTime + 0.2);
+                                                       osc.start(nextNoteTime);
+                                                       osc.stop(nextNoteTime + 0.2);
+                                                  }
+                                             }
+                                        }
+                                   } else {
+                                        // LEGACY PLAYBACK
+                                        const osc = ctx.createOscillator();
+                                        const gain = ctx.createGain();
+                                        osc.connect(gain);
+                                        gain.connect(ctx.destination);
+
+                                        // Frequency calculation (Legacy)
+                                        const baseFreq = 261.63; // C4
+                                        const freq = baseFreq * Math.pow(2, note.note / 12);
+                                        osc.frequency.value = freq;
+                                        osc.type = 'square';
+
+                                        gain.gain.setValueAtTime(0.1, nextNoteTime);
+                                        gain.gain.linearRampToValueAtTime(0.001, nextNoteTime + 0.2);
+
+                                        osc.start(nextNoteTime);
+                                        osc.stop(nextNoteTime + 0.2);
+                                   }
                               });
 
                               // Advance step

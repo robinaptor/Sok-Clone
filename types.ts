@@ -184,12 +184,27 @@ export interface LevelObject {
   activeAnimation?: ActiveAnimation;
 }
 
+export interface MusicRow {
+  id: string;
+  name: string;
+  type: 'SYNTH' | 'SAMPLE';
+  color?: string;
+  // Synth specific
+  note?: string; // e.g. "C4"
+  // Sample specific
+  sampleData?: string; // Base64
+  // Mixer controls
+  volume?: number; // 0 to 1
+  isMuted?: boolean;
+}
+
 export interface MusicTrack {
   id: string;
   name: string;
   data: string; // Base64 or Blob URL
   type: 'UPLOAD' | 'GENERATED';
-  sequence?: { note: number, time: number }[]; // For generated music
+  sequence?: { note: number, time: number }[]; // For generated music. 'note' refers to the row index.
+  rows?: MusicRow[]; // Configuration for each row (instrument). If undefined, assumes default chromatic scale.
 }
 
 export interface Scene {
