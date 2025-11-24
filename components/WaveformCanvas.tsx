@@ -4,9 +4,10 @@ interface WaveformCanvasProps {
      audioData: string;
      trimStart: number;
      trimEnd: number;
+     color?: string;
 }
 
-export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({ audioData, trimStart, trimEnd }) => {
+export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({ audioData, trimStart, trimEnd, color = '#000' }) => {
      const canvasRef = useRef<HTMLCanvasElement>(null);
 
      useEffect(() => {
@@ -28,7 +29,7 @@ export const WaveformCanvas: React.FC<WaveformCanvasProps> = ({ audioData, trimS
                     const amp = canvas.height / 2;
 
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
-                    ctx.fillStyle = '#000';
+                    ctx.fillStyle = color;
                     ctx.beginPath();
 
                     for (let i = 0; i < canvas.width; i++) {

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Play, Square, Save, Trash2, Plus, Music, Mic, Settings, Volume2, Scissors, Clock, Sliders } from 'lucide-react';
+import { X, Play, Square, Save, Trash2, Plus, Music, Mic, Settings, Volume2, Scissors, Clock, Sliders, Copy, Upload, Library, ChevronUp, ChevronDown } from 'lucide-react';
 import { WaveformCanvas } from './WaveformCanvas';
-import { GameData, MusicTrack, MusicRow } from '../types';
+import { GameData, MusicTrack, MusicRow, AudioClip, AudioSettings } from '../types';
 
 interface MusicCreatorProps {
      onSave: (track: MusicTrack) => void;
@@ -251,13 +251,158 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
      // Piano Roll State
      const [pianoRollRowId, setPianoRollRowId] = useState<string | null>(null);
 
+     // Audio Clip Interaction State
+     const [draggingClip, setDraggingClip] = useState<{ clipId: string, rowId: string, startX: number, originalStartStep: number } | null>(null);
+     const [resizingClip, setResizingClip] = useState<{ clipId: string, rowId: string, startX: number, originalDuration: number } | null>(null);
+     const [resizingClipStart, setResizingClipStart] = useState<{ clipId: string, rowId: string, startX: number, originalStartStep: number, originalDuration: number, originalOffset: number } | null>(null);
+
      useEffect(() => {
           const handleMouseUp = () => {
                if (resizingNote) setResizingNote(null);
+               if (draggingClip) setDraggingClip(null);
+               if (resizingClip) setResizingClip(null);
+               if (resizingClipStart) setResizingClipStart(null);
           };
           window.addEventListener('mouseup', handleMouseUp);
           return () => window.removeEventListener('mouseup', handleMouseUp);
-     }, [resizingNote]);
+     }, [resizingNote, draggingClip, resizingClip, resizingClipStart]);
+
+     // Handle Clip Dragging & Resizing
+     useEffect(() => {
+          const handleMouseMove = (e: MouseEvent) => {
+               if (!sequencerGridRef.current) return;
+
+               // Calculate grid metrics (same as resizingNote logic)
+               const gridRect = sequencerGridRef.current.getBoundingClientRect();
+               const totalRems = steps * 4.25 + 0.75;
+               const pixelsPerRem = gridRect.width / totalRems;
+               const stepWidth = 4.25 * pixelsPerRem;
+
+               if (draggingClip) {
+                    const deltaX = e.clientX - draggingClip.startX;
+                    const deltaSteps = deltaX / stepWidth;
+
+                    // Update Clip Start Step
+                    const newStartStep = Math.max(0, draggingClip.originalStartStep + deltaSteps);
+
+                    // Snap to nearest 0.25 step (16th note)
+                    const snappedStartStep = Math.round(newStartStep * 4) / 4;
+
+                    updateRow(draggingClip.rowId, {
+                         audioClips: rows.find(r => r.id === draggingClip.rowId)?.audioClips?.map(c =>
+                              c.id === draggingClip.clipId ? { ...c, startStep: snappedStartStep } : c
+                         )
+                    });
+               }
+
+               if (resizingClip) {
+                    const deltaX = e.clientX - resizingClip.startX;
+                    const deltaSteps = deltaX / stepWidth;
+
+                    // Update Clip Duration
+                    const newDuration = Math.max(0.25, resizingClip.originalDuration + deltaSteps);
+
+                    // Snap
+                    const snappedDuration = Math.round(newDuration * 4) / 4;
+
+                    updateRow(resizingClip.rowId, {
+                         audioClips: rows.find(r => r.id === resizingClip.rowId)?.audioClips?.map(c =>
+                              c.id === resizingClip.clipId ? { ...c, durationSteps: snappedDuration } : c
+                         )
+                    });
+               }
+
+               if (resizingClipStart) {
+                    const deltaX = e.clientX - resizingClipStart.startX;
+                    const deltaSteps = deltaX / stepWidth;
+
+                    // Calculate new start step
+                    // If delta is positive (drag right), start moves right, duration decreases
+                    // If delta is negative (drag left), start moves left, duration increases
+
+                    // Constraint: Start cannot be < 0
+                    let newStartStep = resizingClipStart.originalStartStep + deltaSteps;
+
+                    // Constraint: Duration cannot be < 0.25
+                    // New Duration = Original Duration - Delta
+                    let newDuration = resizingClipStart.originalDuration - deltaSteps;
+
+                    // Constraint: Offset cannot be < 0
+                    // New Offset = Original Offset + (Delta * StepDurationInSeconds)
+                    const secondsPerBeat = 60.0 / tempo;
+                    const stepDurationSeconds = 0.25 * secondsPerBeat;
+                    let newOffset = resizingClipStart.originalOffset + (deltaSteps * stepDurationSeconds);
+
+                    // Apply constraints
+                    if (newOffset < 0) {
+                         // Clamped by offset (can't go before start of sample)
+                         // deltaSteps must be >= -originalOffset / stepDurationSeconds
+                         const minDelta = -resizingClipStart.originalOffset / stepDurationSeconds;
+                         if (deltaSteps < minDelta) {
+                              // Clamp to minDelta
+                              const clampedDelta = minDelta;
+                              newStartStep = resizingClipStart.originalStartStep + clampedDelta;
+                              newDuration = resizingClipStart.originalDuration - clampedDelta;
+                              newOffset = 0;
+                         }
+                    }
+
+                    if (newDuration < 0.25) {
+                         // Clamped by min duration
+                         // deltaSteps must be <= originalDuration - 0.25
+                         const maxDelta = resizingClipStart.originalDuration - 0.25;
+                         if (deltaSteps > maxDelta) {
+                              const clampedDelta = maxDelta;
+                              newStartStep = resizingClipStart.originalStartStep + clampedDelta;
+                              newDuration = resizingClipStart.originalDuration - clampedDelta;
+                              newOffset = resizingClipStart.originalOffset + (clampedDelta * stepDurationSeconds);
+                         }
+                    }
+
+                    if (newStartStep < 0) {
+                         // Clamped by start of grid
+                         newStartStep = 0;
+                         // If we hit start 0, we can still extend duration if we have offset?
+                         // No, if start is 0, we can't move start left.
+                         // But we CAN move start right (trim).
+                         // So this clamp is only for dragging left.
+                         // If dragging left implies start < 0, we stop.
+                         // But wait, if we drag left, we are REVEALING audio (decreasing offset).
+                         // If we are at start 0, we can't move the clip left.
+                         // So yes, startStep >= 0.
+                    }
+
+                    // Snap
+                    const snappedStartStep = Math.round(newStartStep * 4) / 4;
+                    const snappedDuration = Math.round(newDuration * 4) / 4;
+
+                    // Recalculate offset based on snapped values to avoid drift?
+                    // Or just use the calculated offset?
+                    // Let's use the calculated offset but maybe snap it too?
+                    // Actually, offset is in seconds.
+                    // Let's just use the derived offset from the snapped steps difference.
+                    // Delta = NewStart - OriginalStart
+                    const finalDelta = snappedStartStep - resizingClipStart.originalStartStep;
+                    const finalOffset = Math.max(0, resizingClipStart.originalOffset + (finalDelta * stepDurationSeconds));
+
+                    updateRow(resizingClipStart.rowId, {
+                         audioClips: rows.find(r => r.id === resizingClipStart.rowId)?.audioClips?.map(c =>
+                              c.id === resizingClipStart.clipId ? {
+                                   ...c,
+                                   startStep: snappedStartStep,
+                                   durationSteps: snappedDuration,
+                                   offset: finalOffset
+                              } : c
+                         )
+                    });
+               }
+          };
+
+          if (draggingClip || resizingClip || resizingClipStart) {
+               window.addEventListener('mousemove', handleMouseMove);
+          }
+          return () => window.removeEventListener('mousemove', handleMouseMove);
+     }, [draggingClip, resizingClip, resizingClipStart, rows, steps, tempo]);
 
      useEffect(() => {
           const row = rows.find(r => r.id === editingRowId);
@@ -618,17 +763,118 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
           setCurrentStep(stepRef.current);
      };
 
+     const playAudioClip = (row: MusicRow, clip: AudioClip, startTime: number) => {
+          if (!audioCtxRef.current || !row.sampleData) return;
+          const ctx = audioCtxRef.current;
+
+          // Mute/Solo Check
+          if (row.isMuted && soloRowId !== row.id) return;
+          if (soloRowId && soloRowId !== row.id) return;
+
+          fetch(row.sampleData)
+               .then(res => res.arrayBuffer())
+               .then(buffer => ctx.decodeAudioData(buffer))
+               .then(audioBuffer => {
+                    const source = ctx.createBufferSource();
+                    source.buffer = audioBuffer;
+
+                    // Advanced Settings
+                    const settings: AudioSettings = row.audioSettings || {
+                         pitch: 0,
+                         playbackRate: 1.0,
+                         volume: 1.0,
+                         trimStart: 0,
+                         trimEnd: 0,
+                         eq: { high: 0, mid: 0, low: 0 }
+                    };
+                    const playbackRate = settings.playbackRate || 1.0;
+                    const pitchShift = settings.pitch || 0; // Semitones
+
+                    // Calculate final playback rate combining speed and pitch
+                    // Speed affects pitch, so if we want independent pitch shifting we need a complex algorithm (Phase Vocoder).
+                    // But usually "Playback Speed" in simple samplers implies pitch change too (Varispeed).
+                    // The user asked for "Pitch" AND "Vitesse" separately?
+                    // "modifier présisément le Trim, les égue, les grave, le pitch, la vitesse"
+                    // If they are separate, we need a PitchShifterNode (not native).
+                    // For now, let's assume Varispeed (Speed = Pitch).
+                    // If they want Pitch *Correction* (Semitones) without speed change, that's hard.
+                    // But maybe they mean "Tune" (which changes speed).
+                    // Let's combine them: Rate = Speed * (2 ^ (Pitch/12))
+
+                    const finalRate = playbackRate * Math.pow(2, pitchShift / 12);
+                    source.playbackRate.value = finalRate;
+
+                    // Looping
+                    // If the clip duration is longer than the sample *adjusted for rate*, we loop.
+                    // Actually, we can just set loop=true and let stop() handle the cut.
+                    source.loop = true;
+
+                    // FX Chain (EQ -> Volume)
+                    const eqHigh = ctx.createBiquadFilter();
+                    eqHigh.type = 'highshelf';
+                    eqHigh.frequency.value = 3000;
+                    eqHigh.gain.value = settings.eq?.high || 0;
+
+                    const eqMid = ctx.createBiquadFilter();
+                    eqMid.type = 'peaking';
+                    eqMid.frequency.value = 1000;
+                    eqMid.gain.value = settings.eq?.mid || 0;
+
+                    const eqLow = ctx.createBiquadFilter();
+                    eqLow.type = 'lowshelf';
+                    eqLow.frequency.value = 250;
+                    eqLow.gain.value = settings.eq?.low || 0;
+
+                    const gain = ctx.createGain();
+                    gain.gain.value = row.volume ?? 1.0;
+
+                    source.connect(eqLow);
+                    eqLow.connect(eqMid);
+                    eqMid.connect(eqHigh);
+                    eqHigh.connect(gain);
+                    gain.connect(ctx.destination);
+
+                    // Calculate Duration in Seconds
+                    const secondsPerBeat = 60.0 / tempo;
+                    const stepDuration = 0.25 * secondsPerBeat;
+                    const playDuration = clip.durationSteps * stepDuration;
+
+                    // Start
+                    source.start(startTime, clip.offset || 0, playDuration);
+               })
+               .catch(e => console.error("Error playing clip", e));
+     };
+
      const scheduleNote = (stepNumber: number, time: number) => {
+          // 1. Standard Grid Notes
           if (grid[stepNumber]) {
                grid[stepNumber].forEach((duration, rowIndex) => {
                     if (duration > 0) {
-                         // Check for melody note override
                          const row = rows[rowIndex];
-                         const melodyNotes = row.notes?.[stepNumber]; // This can now be an array of notes
-                         playRowSound(rowIndex, time, duration, melodyNotes);
+                         if (row.type !== 'AUDIO') {
+                              const melodyNotes = row.notes?.[stepNumber];
+                              playRowSound(rowIndex, time, duration, melodyNotes);
+                         }
                     }
                });
           }
+
+          // 2. Audio Clips (Sub-step scheduling)
+          rows.forEach(row => {
+               if (row.type === 'AUDIO' && row.audioClips) {
+                    row.audioClips.forEach(clip => {
+                         // Check if clip starts in this step window [stepNumber, stepNumber + 1)
+                         if (clip.startStep >= stepNumber && clip.startStep < stepNumber + 1) {
+                              const secondsPerBeat = 60.0 / tempo;
+                              const stepDuration = 0.25 * secondsPerBeat;
+                              const offsetSteps = clip.startStep - stepNumber;
+                              const exactTime = time + (offsetSteps * stepDuration);
+
+                              playAudioClip(row, clip, exactTime);
+                         }
+                    });
+               }
+          });
      };
 
      const togglePlay = () => {
@@ -684,10 +930,42 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
                mediaRecorder.onstop = () => {
                     const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
                     const reader = new FileReader();
-                    reader.onloadend = () => {
+                    reader.onloadend = async () => {
                          const base64 = reader.result as string;
                          if (editingRowId) {
-                              setRows(prev => prev.map(r => r.id === editingRowId ? { ...r, sampleData: base64, trimStart: 0, trimEnd: 1 } : r));
+                              const row = rows.find(r => r.id === editingRowId);
+
+                              if (row?.type === 'AUDIO') {
+                                   // Calculate duration in steps
+                                   const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+                                   const arrayBuffer = await (await fetch(base64)).arrayBuffer();
+                                   const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+
+                                   const durationSeconds = audioBuffer.duration;
+                                   const secondsPerBeat = 60.0 / tempo;
+                                   const stepDuration = 0.25 * secondsPerBeat;
+                                   const durationSteps = durationSeconds / stepDuration;
+
+                                   // Create new clip
+                                   const newClip: AudioClip = {
+                                        id: Math.random().toString(36).substr(2, 9),
+                                        startStep: 0, // Start at beginning
+                                        durationSteps: durationSteps,
+                                        offset: 0,
+                                        isLooping: false,
+                                        originalDurationSteps: durationSteps
+                                   };
+
+                                   setRows(prev => prev.map(r => r.id === editingRowId ? {
+                                        ...r,
+                                        sampleData: base64,
+                                        audioClips: [...(r.audioClips || []), newClip]
+                                   } : r));
+
+                              } else {
+                                   // Standard Sample Row
+                                   setRows(prev => prev.map(r => r.id === editingRowId ? { ...r, sampleData: base64, trimStart: 0, trimEnd: 1 } : r));
+                              }
                          }
                     };
                     reader.readAsDataURL(blob);
@@ -707,6 +985,14 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
                mediaRecorderRef.current.stop();
                setIsRecording(false);
           }
+     };
+
+     // --- Sample Library ---
+     const [isLibraryOpen, setIsLibraryOpen] = useState(false);
+     const [librarySamples, setLibrarySamples] = useState<{ id: string, name: string, data: string }[]>([]);
+
+     const addToLibrary = (name: string, data: string) => {
+          setLibrarySamples(prev => [...prev, { id: Math.random().toString(36).substr(2, 9), name, data }]);
      };
 
      const addNewRow = () => {
@@ -738,6 +1024,81 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
      const updateRow = (id: string, updates: Partial<MusicRow>) => {
           setRows(prev => prev.map(r => r.id === id ? { ...r, ...updates } : r));
      };
+
+     const duplicateClip = (rowId: string, clipId: string) => {
+          setRows(prev => prev.map(r => {
+               if (r.id !== rowId || !r.audioClips) return r;
+               const clip = r.audioClips.find(c => c.id === clipId);
+               if (!clip) return r;
+
+               const newClip: AudioClip = {
+                    ...clip,
+                    id: Math.random().toString(36).substr(2, 9),
+                    startStep: clip.startStep + clip.durationSteps, // Place after
+               };
+
+               return { ...r, audioClips: [...r.audioClips, newClip] };
+          }));
+     };
+
+     const deleteClip = (rowId: string, clipId: string) => {
+          setRows(prev => prev.map(r => {
+               if (r.id !== rowId || !r.audioClips) return r;
+               return { ...r, audioClips: r.audioClips.filter(c => c.id !== clipId) };
+          }));
+     };
+
+     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, rowId: string) => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+
+          const reader = new FileReader();
+          reader.onload = async (event) => {
+               const base64 = event.target?.result as string;
+               const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+               const arrayBuffer = await (await fetch(base64)).arrayBuffer();
+               const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+
+               const durationSeconds = audioBuffer.duration;
+               const secondsPerBeat = 60.0 / tempo;
+               const stepDuration = 0.25 * secondsPerBeat;
+               const durationSteps = durationSeconds / stepDuration;
+
+               const newClip: AudioClip = {
+                    id: Math.random().toString(36).substr(2, 9),
+                    startStep: 0,
+                    durationSteps: durationSteps,
+                    offset: 0,
+                    isLooping: false,
+                    originalDurationSteps: durationSteps // Store original duration for looping
+               } as any;
+
+               setRows(prev => prev.map(r => r.id === rowId ? {
+                    ...r,
+                    sampleData: base64,
+                    audioClips: [...(r.audioClips || []), newClip]
+               } : r));
+
+               // Add to library if not already present (simple check by name? or just always add?)
+               // Let's just add it for now, maybe user wants duplicates or we can check content hash later.
+               // Use file name if available, else "Uploaded Sample"
+               addToLibrary(file.name || "Uploaded Sample", base64);
+          };
+          reader.readAsDataURL(file);
+     };
+
+     // Ensure uploaded samples go to library
+     useEffect(() => {
+          rows.forEach(row => {
+               if (row.sampleData) {
+                    // Check if already in library
+                    const exists = librarySamples.some(s => s.data === row.sampleData);
+                    if (!exists) {
+                         addToLibrary(row.name || "Sample", row.sampleData);
+                    }
+               }
+          });
+     }, [rows]);
 
      const editingRow = rows.find(r => r.id === editingRowId);
 
@@ -1057,98 +1418,387 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
                                                        ))}
                                                   </div>
 
-                                                  {/* Grid Cells & Notes */}
-                                                  {Array(steps).fill(null).map((_, step) => {
-                                                       const duration = grid[step]?.[rowIndex] || 0;
-                                                       const isCurrent = currentStep >= step && currentStep < step + (duration || 1);
+                                                  {/* AUDIO TRACK RENDERING */}
+                                                  {row.type === 'AUDIO' ? (
+                                                       <div
+                                                            className="absolute inset-0 p-2 w-full h-full pointer-events-none"
+                                                            onDragOver={(e) => {
+                                                                 e.preventDefault();
+                                                                 e.stopPropagation();
+                                                            }}
+                                                            onDrop={async (e) => {
+                                                                 e.preventDefault();
+                                                                 e.stopPropagation();
+                                                                 const data = e.dataTransfer.getData('application/json');
+                                                                 if (!data) return;
 
-                                                       // Check if this cell is covered by a previous note
-                                                       let isCovered = false;
-                                                       for (let i = 1; i < steps; i++) {
-                                                            if (step - i >= 0 && grid[step - i]?.[rowIndex] > i) {
-                                                                 isCovered = true;
-                                                                 break;
-                                                            }
-                                                       }
+                                                                 try {
+                                                                      const sample = JSON.parse(data);
+                                                                      if (sample.type === 'SAMPLE') {
+                                                                           // Calculate drop position
+                                                                           const gridRect = sequencerGridRef.current?.getBoundingClientRect();
+                                                                           if (!gridRect) return;
 
-                                                       if (isCovered) return null; // Don't render anything if covered
+                                                                           // Calculate pixels per step (approximate)
+                                                                           // We know 4rem + 0.25rem gap = 4.25rem per step.
+                                                                           // 1rem = 16px (usually).
+                                                                           // Let's try to be more precise by measuring the container width?
+                                                                           // Or just use the same logic as resize?
+                                                                           // Let's assume 1rem = 16px for now as we used in CSS.
+                                                                           const stepWidthPx = 4.25 * 16;
+                                                                           const dropX = e.clientX - gridRect.left - (0.5 * 16); // Subtract padding
+                                                                           const startStep = Math.max(0, Math.floor(dropX / stepWidthPx));
 
-                                                       if (duration > 0) {
-                                                            // RENDER NOTE
-                                                            return (
-                                                                 <div
-                                                                      key={step}
-                                                                      className={`
-                                                                           relative h-full rounded-md cursor-pointer transition-all duration-75 border-2 z-10
-                                                                           ${row.color || 'bg-gray-200'} border-black shadow-[2px_2px_0px_rgba(0,0,0,0.2)]
-                                                                           ${isCurrent ? 'ring-4 ring-purple-200' : ''}
-                                                                      `}
-                                                                      style={{
-                                                                           width: `calc(${duration} * 4rem + ${(duration - 1) * 0.25}rem)`, // 4rem = w-16, 0.25rem = gap-1
-                                                                           flexShrink: 0
-                                                                      }}
-                                                                      onClick={(e) => e.stopPropagation()}
-                                                                      onMouseDown={(e) => {
-                                                                           e.stopPropagation();
-                                                                           e.preventDefault(); // Prevent native drag/selection
-                                                                           handleGridMouseDown(step, rowIndex, true);
-                                                                      }}
-                                                                      onMouseEnter={() => {
-                                                                           handleGridMouseEnter(step, rowIndex, true);
+                                                                           // Create Clip
+                                                                           // We need duration. We have the base64 data.
+                                                                           const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+                                                                           const arrayBuffer = await (await fetch(sample.data)).arrayBuffer();
+                                                                           const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+                                                                           const durationSeconds = audioBuffer.duration;
+                                                                           const secondsPerBeat = 60.0 / tempo;
+                                                                           const stepDuration = 0.25 * secondsPerBeat;
+                                                                           const durationSteps = durationSeconds / stepDuration;
 
-                                                                           // Handle shortening (drag left back into the note)
-                                                                           if (resizingNote && resizingNote.row === rowIndex && resizingNote.step === step) {
-                                                                                // We are hovering over the note itself while resizing it.
-                                                                                // This logic is tricky because the note covers multiple cells.
-                                                                                // We need to calculate which "sub-cell" we are over.
-                                                                                // But since we are using grid cells for mouse events, this event only fires for the START cell.
-                                                                                // So we can't easily shorten by hovering the start cell unless we make it 1.
+                                                                           const newClip: AudioClip = {
+                                                                                id: Math.random().toString(36).substr(2, 9),
+                                                                                startStep: startStep,
+                                                                                durationSteps: durationSteps,
+                                                                                offset: 0,
+                                                                                isLooping: false,
+                                                                                originalDurationSteps: durationSteps
+                                                                           } as any;
 
-                                                                                // Actually, we can rely on the empty slots for expansion.
-                                                                                // For shortening, we need to detect when we hover over the "virtual" cells covered by this note.
-                                                                                // But those are not rendered!
+                                                                           updateRow(row.id, {
+                                                                                audioClips: [...(row.audioClips || []), newClip],
+                                                                                sampleData: sample.data // Update track sample data too? Or just clip?
+                                                                                // If we support multiple samples per track, we should probably store data in clip?
+                                                                                // But current architecture stores `sampleData` on the ROW.
+                                                                                // This implies one sample per track?
+                                                                                // The `MusicRow` has `sampleData: string`. Single.
+                                                                                // So for now, dropping a sample REPLACES the track's sample source.
+                                                                                // And adds a clip.
+                                                                           });
+                                                                      }
+                                                                 } catch (err) {
+                                                                      console.error("Drop error", err);
+                                                                 }
+                                                            }}
+                                                       >
+                                                            {/* Empty State / Drop Zone */}
+                                                            <div
+                                                                 className="absolute inset-0 pointer-events-auto cursor-pointer hover:bg-black/5 transition-colors flex items-center justify-center group/track"
+                                                                 onClick={() => document.getElementById(`upload-${row.id}`)?.click()}
+                                                            >
+                                                                 <input
+                                                                      id={`upload-${row.id}`}
+                                                                      type="file"
+                                                                      accept="audio/*"
+                                                                      className="hidden"
+                                                                      onChange={(e) => handleFileUpload(e, row.id)}
+                                                                 />
+                                                                 {(!row.audioClips || row.audioClips.length === 0) && (
+                                                                      <div className="flex flex-col items-center gap-2">
+                                                                           <span className="text-gray-400 font-bold group-hover/track:text-black transition-colors flex items-center gap-2">
+                                                                                <Upload size={16} /> Click to Add Audio
+                                                                           </span>
+                                                                           {row.sampleData && (
+                                                                                <button
+                                                                                     onClick={(e) => {
+                                                                                          e.stopPropagation();
+                                                                                          // Restore clip from sampleData
+                                                                                          // We need to calculate duration again... or just default to 4 steps?
+                                                                                          // Ideally we decode it again or store duration.
+                                                                                          // Let's try to decode it quickly or just use a default and let user resize.
+                                                                                          // Actually, we can reuse the logic from handleFileUpload if we extract it,
+                                                                                          // but since we can't easily await here without async wrapper, let's just add a default clip
+                                                                                          // and maybe trigger a duration recalc effect?
+                                                                                          // Or just decode it here.
+                                                                                          const restore = async () => {
+                                                                                               const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+                                                                                               const arrayBuffer = await (await fetch(row.sampleData!)).arrayBuffer();
+                                                                                               const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+                                                                                               const durationSeconds = audioBuffer.duration;
+                                                                                               const secondsPerBeat = 60.0 / tempo;
+                                                                                               const stepDuration = 0.25 * secondsPerBeat;
+                                                                                               const durationSteps = durationSeconds / stepDuration;
 
-                                                                                // Alternative: Render the covered cells as invisible drop targets?
-                                                                                // Or just use mouse move on the container?
+                                                                                               const newClip: AudioClip = {
+                                                                                                    id: Math.random().toString(36).substr(2, 9),
+                                                                                                    startStep: 0,
+                                                                                                    durationSteps: durationSteps,
+                                                                                                    offset: 0,
+                                                                                                    isLooping: false,
+                                                                                                    originalDurationSteps: durationSteps
+                                                                                               } as any;
 
-                                                                                // Simplest fix for now: If we hover the start cell, reset to 1?
-                                                                                // No, that's too aggressive.
-                                                                           }
-                                                                      }}
-                                                                 >
-                                                                      {/* Resize Handle */}
+                                                                                               updateRow(row.id, { audioClips: [newClip] });
+                                                                                          };
+                                                                                          restore();
+                                                                                     }}
+                                                                                     className="text-xs bg-white border border-black px-2 py-1 rounded shadow-[2px_2px_0px_black] hover:bg-gray-100 font-bold flex items-center gap-1"
+                                                                                >
+                                                                                     <Mic size={12} /> Restore Recording
+                                                                                </button>
+                                                                           )}
+                                                                      </div>
+                                                                 )}
+                                                            </div>
+
+                                                            {/* Render Clips */}
+                                                            {row.audioClips?.map((clip) => {
+                                                                 const widthPercent = (clip.durationSteps / steps) * 100;
+                                                                 const leftPercent = (clip.startStep / steps) * 100;
+
+                                                                 // Calculate how many times to repeat the waveform
+                                                                 // We need the original sample duration in steps.
+                                                                 // We can approximate it if we assume the clip was created with the full duration initially?
+                                                                 // Or we need to store the original duration in the clip or calculate it from the buffer.
+                                                                 // Since we don't have the buffer here easily without decoding, let's rely on a prop or just assume standard ratio?
+                                                                 // Actually, we can just use the `offset` and `duration` to determine the "window".
+                                                                 // But for visual looping, we need to know the "cycle length".
+                                                                 // Let's assume for now that the clip's visual width is the "window".
+                                                                 // If we want to show looping, we need to render the waveform multiple times.
+                                                                 // A simple way is to use `background-repeat` but we are using a canvas.
+                                                                 // So we can just render multiple WaveformCanvas components side-by-side?
+                                                                 // Or just one WaveformCanvas that draws the data repeatedly?
+                                                                 // `WaveformCanvas` takes `audioData` (base64).
+                                                                 // Let's try to render it multiple times if duration > sampleDuration.
+                                                                 // But we don't know sampleDuration here easily!
+                                                                 // Wait, `handleFileUpload` calculates `durationSteps`.
+                                                                 // We should probably store `originalDurationSteps` on the clip or row?
+                                                                 // For now, let's just stretch it? No, user said "PAS rapetisse" (don't shrink/stretch).
+                                                                 // User said "repeat it".
+                                                                 // If we don't know the original duration, we can't know when to repeat.
+                                                                 // However, when we create the clip, we set `durationSteps`.
+                                                                 // Let's assume the initial `durationSteps` IS the sample length.
+                                                                 // But if we resize it, `durationSteps` changes.
+                                                                 // We need to store `sampleDurationSteps` on the clip or row.
+                                                                 // Let's add `sampleDurationSteps` to `AudioClip`?
+                                                                 // Or just use `row.sampleDuration` if we had it.
+                                                                 // Let's hack it: If we assume the user hasn't stretched it (speed change),
+                                                                 // then the visual repetition depends on the ratio of current duration to... something.
+                                                                 // Actually, if we just want to "reveal" more of the loop, we can just keep the waveform scale constant.
+                                                                 // The `WaveformCanvas` draws the WHOLE buffer into its width.
+                                                                 // If we want to show a loop, we need to draw the buffer into a subset of the width.
+                                                                 // This is getting complex for a simple visual.
+                                                                 // Alternative: Use a background image of the waveform?
+                                                                 // Let's try to just render the WaveformCanvas with `object-fit: cover`? No.
+                                                                 // Let's just render multiple WaveformCanvas elements.
+                                                                 // We need to know the width of ONE cycle.
+                                                                 // Let's assume 4 bars (16 steps) is a common loop? No.
+                                                                 // Let's look at `handleFileUpload` again. It calculates `durationSteps`.
+                                                                 // We should save this as `originalDurationSteps` in the clip.
+                                                                 // I'll update `handleFileUpload` to save `originalDurationSteps`.
+                                                                 // For now, let's assume `clip.originalDurationSteps` exists (I'll add it).
+
+                                                                 const originalDuration = (clip as any).originalDurationSteps || clip.durationSteps;
+                                                                 const loopCount = Math.ceil(clip.durationSteps / originalDuration);
+
+                                                                 return (
                                                                       <div
-                                                                           className="absolute right-0 top-0 bottom-0 w-6 cursor-e-resize hover:bg-black/10 flex items-center justify-center group/handle"
+                                                                           key={clip.id}
+                                                                           className="absolute top-1 bottom-1 bg-green-200 border-2 border-black rounded-lg overflow-hidden pointer-events-auto cursor-move group"
+                                                                           style={{
+                                                                                left: `calc(${clip.startStep} * 4.25rem)`,
+                                                                                width: `calc(${clip.durationSteps} * 4.25rem - 0.25rem)`,
+                                                                           }}
+                                                                           onMouseDown={(e) => {
+                                                                                e.stopPropagation();
+                                                                                setDraggingClip({
+                                                                                     clipId: clip.id,
+                                                                                     rowId: row.id,
+                                                                                     startX: e.clientX,
+                                                                                     originalStartStep: clip.startStep
+                                                                                });
+                                                                           }}
+                                                                      >
+                                                                           {/* Waveform Visualization (Windowed / Cropped) */}
+                                                                           <div className="absolute inset-0 opacity-50 pointer-events-none overflow-hidden rounded-lg">
+                                                                                <div
+                                                                                     style={{
+                                                                                          position: 'absolute',
+                                                                                          top: 0,
+                                                                                          bottom: 0,
+                                                                                          // Calculate left offset based on clip.offset (seconds)
+                                                                                          // offsetSteps = offset / stepDuration
+                                                                                          // left = -offsetSteps * 4.25rem
+                                                                                          left: `calc(-${(clip.offset || 0) / (0.25 * (60.0 / tempo))} * 4.25rem)`,
+                                                                                          width: `calc(${originalDuration} * 4.25rem)`,
+                                                                                          display: 'flex'
+                                                                                     }}
+                                                                                >
+                                                                                     {/* Render enough copies to cover the potential loop?
+                                                                                          For now, just one copy as "Simple Sample" usually implies one shot.
+                                                                                          But if we want looping, we can repeat.
+                                                                                          Let's render 1 copy for now as the user focused on "stretching".
+                                                                                      */}
+                                                                                     <div className="w-full h-full relative">
+                                                                                          {row.sampleData && (
+                                                                                               <WaveformCanvas
+                                                                                                    audioData={row.sampleData}
+                                                                                                    trimStart={0}
+                                                                                                    trimEnd={1}
+                                                                                                    color="#166534"
+                                                                                               />
+                                                                                          )}
+                                                                                     </div>
+                                                                                </div>
+                                                                           </div>
+
+                                                                           <span className="relative z-10 font-bold text-xs p-1 text-green-900 truncate block">{row.name}</span>
+
+                                                                           {/* Clip Actions (Hover) */}
+                                                                           <div className="absolute top-1 right-6 hidden group-hover:flex gap-1 z-20">
+                                                                                <button
+                                                                                     className="p-1 bg-white/80 hover:bg-white rounded border border-black text-black"
+                                                                                     onClick={(e) => { e.stopPropagation(); duplicateClip(row.id, clip.id); }}
+                                                                                     title="Duplicate"
+                                                                                >
+                                                                                     <Copy size={12} />
+                                                                                </button>
+                                                                                <button
+                                                                                     className="p-1 bg-white/80 hover:bg-red-100 rounded border border-black text-red-500"
+                                                                                     onClick={(e) => { e.stopPropagation(); deleteClip(row.id, clip.id); }}
+                                                                                     title="Delete"
+                                                                                >
+                                                                                     <Trash2 size={12} />
+                                                                                </button>
+                                                                           </div>
+
+                                                                           {/* Resize Handle (Right) */}
+                                                                           <div
+                                                                                className="absolute right-0 top-0 bottom-0 w-4 cursor-e-resize hover:bg-black/20 flex items-center justify-center"
+                                                                                onMouseDown={(e) => {
+                                                                                     e.stopPropagation();
+                                                                                     setResizingClip({
+                                                                                          clipId: clip.id,
+                                                                                          rowId: row.id,
+                                                                                          startX: e.clientX,
+                                                                                          originalDuration: clip.durationSteps
+                                                                                     });
+                                                                                }}
+                                                                           >
+                                                                                <div className="w-1 h-4 bg-black/20 rounded-full" />
+                                                                           </div>
+
+                                                                           {/* Resize Handle (Left) */}
+                                                                           <div
+                                                                                className="absolute left-0 top-0 bottom-0 w-4 cursor-w-resize hover:bg-black/20 flex items-center justify-center z-30"
+                                                                                onMouseDown={(e) => {
+                                                                                     e.stopPropagation();
+                                                                                     setResizingClipStart({
+                                                                                          clipId: clip.id,
+                                                                                          rowId: row.id,
+                                                                                          startX: e.clientX,
+                                                                                          originalStartStep: clip.startStep,
+                                                                                          originalDuration: clip.durationSteps,
+                                                                                          originalOffset: clip.offset || 0
+                                                                                     });
+                                                                                }}
+                                                                           >
+                                                                                <div className="w-1 h-4 bg-black/20 rounded-full" />
+                                                                           </div>
+                                                                      </div>
+                                                                 );
+                                                            })}
+
+                                                            {/* Click on empty space to add clip? Or maybe just drag and drop? */}
+                                                            {/* For now, clips are added via recording/upload */}
+                                                       </div>
+                                                  ) : (
+                                                       /* STANDARD SEQUENCER RENDERING */
+                                                       Array(steps).fill(null).map((_, step) => {
+                                                            const duration = grid[step]?.[rowIndex] || 0;
+                                                            const isCurrent = currentStep >= step && currentStep < step + (duration || 1);
+
+                                                            // Check if this cell is covered by a previous note
+                                                            let isCovered = false;
+                                                            for (let i = 1; i < steps; i++) {
+                                                                 if (step - i >= 0 && grid[step - i]?.[rowIndex] > i) {
+                                                                      isCovered = true;
+                                                                      break;
+                                                                 }
+                                                            }
+
+                                                            if (isCovered) return null; // Don't render anything if covered
+
+                                                            if (duration > 0) {
+                                                                 // RENDER NOTE
+                                                                 return (
+                                                                      <div
+                                                                           key={step}
+                                                                           className={`
+                                                                            relative h-full rounded-md cursor-pointer transition-all duration-75 border-2 z-10
+                                                                            ${row.color || 'bg-gray-200'} border-black shadow-[2px_2px_0px_rgba(0,0,0,0.2)]
+                                                                            ${isCurrent ? 'ring-4 ring-purple-200' : ''}
+                                                                       `}
+                                                                           style={{
+                                                                                width: `calc(${duration} * 4rem + ${(duration - 1) * 0.25}rem)`, // 4rem = w-16, 0.25rem = gap-1
+                                                                                flexShrink: 0
+                                                                           }}
                                                                            onClick={(e) => e.stopPropagation()}
                                                                            onMouseDown={(e) => {
                                                                                 e.stopPropagation();
-                                                                                setResizingNote({ step, row: rowIndex });
+                                                                                e.preventDefault(); // Prevent native drag/selection
+                                                                                handleGridMouseDown(step, rowIndex, true);
+                                                                           }}
+                                                                           onMouseEnter={() => {
+                                                                                handleGridMouseEnter(step, rowIndex, true);
+
+                                                                                // Handle shortening (drag left back into the note)
+                                                                                if (resizingNote && resizingNote.row === rowIndex && resizingNote.step === step) {
+                                                                                     // We are hovering over the note itself while resizing it.
+                                                                                     // This logic is tricky because the note covers multiple cells.
+                                                                                     // We need to calculate which "sub-cell" we are over.
+                                                                                     // But since we are using grid cells for mouse events, this event only fires for the START cell.
+                                                                                     // So we can't easily shorten by hovering the start cell unless we make it 1.
+
+                                                                                     // Actually, we can rely on the empty slots for expansion.
+                                                                                     // For shortening, we need to detect when we hover over the "virtual" cells covered by this note.
+                                                                                     // But those are not rendered!
+
+                                                                                     // Alternative: Render the covered cells as invisible drop targets?
+                                                                                     // Or just use mouse move on the container?
+
+                                                                                     // Simplest fix for now: If we hover the start cell, reset to 1?
+                                                                                     // No, that's too aggressive.
+                                                                                }
                                                                            }}
                                                                       >
-                                                                           <div className="w-1 h-4 bg-black/20 rounded-full group-hover/handle:bg-black/40 transition-colors" />
+                                                                           {/* Resize Handle */}
+                                                                           <div
+                                                                                className="absolute right-0 top-0 bottom-0 w-6 cursor-e-resize hover:bg-black/10 flex items-center justify-center group/handle"
+                                                                                onClick={(e) => e.stopPropagation()}
+                                                                                onMouseDown={(e) => {
+                                                                                     e.stopPropagation();
+                                                                                     setResizingNote({ step, row: rowIndex });
+                                                                                }}
+                                                                           >
+                                                                                <div className="w-1 h-4 bg-black/20 rounded-full group-hover/handle:bg-black/40 transition-colors" />
+                                                                           </div>
                                                                       </div>
-                                                                 </div>
-                                                            );
-                                                       } else {
-                                                            // RENDER EMPTY SLOT
-                                                            return (
-                                                                 <div
-                                                                      key={step}
-                                                                      className={`
-                                                                           w-16 h-full rounded-md cursor-pointer transition-all duration-75 border-2 select-none
-                                                                           bg-white border-gray-100 hover:border-gray-400
-                                                                           ${currentStep === step ? 'bg-purple-50' : ''}
-                                                                      `}
-                                                                      onMouseDown={(e) => {
-                                                                           e.stopPropagation();
-                                                                           e.preventDefault(); // Prevent native drag/selection
-                                                                           handleGridMouseDown(step, rowIndex, false);
-                                                                      }}
-                                                                      onMouseEnter={() => handleGridMouseEnter(step, rowIndex, false)}
-                                                                 />
-                                                            );
-                                                       }
-                                                  })}
+                                                                 );
+                                                            } else {
+                                                                 // RENDER EMPTY SLOT
+                                                                 return (
+                                                                      <div
+                                                                           key={step}
+                                                                           className={`
+                                                                            w-16 h-full rounded-md cursor-pointer transition-all duration-75 border-2 select-none
+                                                                            bg-white border-gray-100 hover:border-gray-400
+                                                                            ${currentStep === step ? 'bg-purple-50' : ''}
+                                                                       `}
+                                                                           onMouseDown={(e) => {
+                                                                                e.stopPropagation();
+                                                                                e.preventDefault(); // Prevent native drag/selection
+                                                                                handleGridMouseDown(step, rowIndex, false);
+                                                                           }}
+                                                                           onMouseEnter={() => handleGridMouseEnter(step, rowIndex, false)}
+                                                                      />
+                                                                 );
+                                                            }
+                                                       })
+                                                  )}
                                              </div>
                                         ))}
                                    </div>
@@ -1157,13 +1807,77 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
                     </div>
 
                     {/* FOOTER */}
-                    <div className="flex justify-end gap-4 pt-4 border-t-[3px] border-black bg-gray-50 p-4 rounded-b-xl shrink-0">
-                         <button onClick={onCancel} className="sketch-btn px-6 py-3 rounded-xl text-black hover:bg-gray-100 font-bold flex items-center gap-2 text-lg">
-                              <X size={24} /> CANCEL
+                    <div className="flex justify-between items-center pt-4 border-t-[3px] border-black bg-gray-50 p-4 rounded-b-xl shrink-0 relative z-20">
+                         <button
+                              onClick={() => setIsLibraryOpen(!isLibraryOpen)}
+                              className={`sketch-btn px-6 py-3 rounded-xl font-bold flex items-center gap-2 text-lg transition-all ${isLibraryOpen ? 'bg-purple-600 text-white' : 'bg-white text-black hover:bg-gray-100'}`}
+                         >
+                              <Library size={24} /> Sample Library
+                              {isLibraryOpen ? <ChevronDown size={20} /> : <ChevronUp size={20} />}
                          </button>
-                         <button onClick={handleSave} className="sketch-btn px-8 py-3 rounded-xl bg-purple-100 text-purple-900 font-bold flex items-center gap-2 text-lg hover:bg-purple-200">
-                              <Save size={24} /> SAVE TRACK
-                         </button>
+
+                         <div className="flex gap-4">
+                              <button onClick={onCancel} className="sketch-btn px-6 py-3 rounded-xl text-black hover:bg-gray-100 font-bold flex items-center gap-2 text-lg">
+                                   <X size={24} /> CANCEL
+                              </button>
+                              <button onClick={handleSave} className="sketch-btn px-8 py-3 rounded-xl bg-purple-100 text-purple-900 font-bold flex items-center gap-2 text-lg hover:bg-purple-200">
+                                   <Save size={24} /> SAVE TRACK
+                              </button>
+                         </div>
+                    </div>
+
+                    {/* SAMPLE LIBRARY DRAWER */}
+                    <div className={`absolute bottom-0 left-0 right-0 bg-white border-t-[3px] border-black transition-transform duration-300 ease-in-out z-10 flex flex-col ${isLibraryOpen ? 'translate-y-[-80px]' : 'translate-y-full'}`} style={{ height: '250px', bottom: '80px' }}>
+                         <div className="bg-purple-100 p-2 border-b-2 border-black flex justify-between items-center">
+                              <h3 className="font-bold text-lg flex items-center gap-2"><Library size={18} /> My Samples</h3>
+                              <label className="cursor-pointer bg-white border-2 border-black px-3 py-1 rounded-lg font-bold text-sm hover:bg-gray-50 flex items-center gap-2">
+                                   <Upload size={14} /> Import Sample
+                                   <input type="file" accept="audio/*" className="hidden" onChange={(e) => {
+                                        const file = e.target.files?.[0];
+                                        if (file) {
+                                             const reader = new FileReader();
+                                             reader.onload = (ev) => {
+                                                  addToLibrary(file.name, ev.target?.result as string);
+                                             };
+                                             reader.readAsDataURL(file);
+                                        }
+                                   }} />
+                              </label>
+                         </div>
+                         <div className="flex-1 overflow-x-auto p-4 flex gap-4 bg-gray-50">
+                              {librarySamples.length === 0 ? (
+                                   <div className="flex-1 flex flex-col items-center justify-center text-gray-400 font-bold border-2 border-dashed border-gray-300 rounded-xl">
+                                        <Library size={48} className="mb-2 opacity-50" />
+                                        <p>Library is empty</p>
+                                        <p className="text-sm font-normal">Import samples or drag them here</p>
+                                   </div>
+                              ) : (
+                                   librarySamples.map(sample => (
+                                        <div
+                                             key={sample.id}
+                                             className="w-40 h-32 bg-white border-2 border-black rounded-xl flex flex-col overflow-hidden shrink-0 cursor-grab active:cursor-grabbing hover:shadow-md transition-all group relative"
+                                             draggable
+                                             onDragStart={(e) => {
+                                                  e.dataTransfer.setData('application/json', JSON.stringify({ type: 'SAMPLE', ...sample }));
+                                                  e.dataTransfer.effectAllowed = 'copy';
+                                             }}
+                                        >
+                                             <div className="flex-1 bg-green-50 relative">
+                                                  <WaveformCanvas audioData={sample.data} trimStart={0} trimEnd={1} color="#166534" />
+                                             </div>
+                                             <div className="p-2 border-t-2 border-black bg-white font-bold text-xs truncate flex justify-between items-center">
+                                                  <span className="truncate flex-1" title={sample.name}>{sample.name}</span>
+                                                  <button
+                                                       onClick={() => setLibrarySamples(prev => prev.filter(s => s.id !== sample.id))}
+                                                       className="text-gray-400 hover:text-red-500"
+                                                  >
+                                                       <Trash2 size={12} />
+                                                  </button>
+                                             </div>
+                                        </div>
+                                   ))
+                              )}
+                         </div>
                     </div>
                </div>
 
@@ -1216,6 +1930,12 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
                                         >
                                              SAMPLE
                                         </button>
+                                        <button
+                                             onClick={() => updateRow(editingRow.id, { type: 'AUDIO', audioClips: editingRow.audioClips || [] })}
+                                             className={`flex-1 py-2 rounded-md font-bold transition-all ${editingRow.type === 'AUDIO' ? 'bg-green-200 text-black border-2 border-black shadow-[2px_2px_0px_black]' : 'text-gray-500 hover:text-black'}`}
+                                        >
+                                             AUDIO TRACK
+                                        </button>
                                    </div>
                               </div>
 
@@ -1245,11 +1965,11 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
                                              </div>
                                         )}
 
-                                        {/* Recording Controls (SAMPLE ONLY) */}
-                                        {editingRow.type === 'SAMPLE' && (
+                                        {/* Recording Controls (SAMPLE & AUDIO) */}
+                                        {(editingRow.type === 'SAMPLE' || editingRow.type === 'AUDIO') && (
                                              <div className="space-y-4">
                                                   <div className="flex flex-col gap-2">
-                                                       <label className="font-bold text-gray-500 text-sm uppercase tracking-wider">Voice Recording</label>
+                                                       <label className="font-bold text-gray-500 text-sm uppercase tracking-wider">Voice Recording / Upload</label>
                                                        <div className="relative w-full h-24 bg-gray-100 rounded-xl border-2 border-black overflow-hidden flex items-center justify-center">
                                                             {editingRow.sampleData ? (
                                                                  <WaveformCanvas
@@ -1268,12 +1988,23 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
                                                             onTouchStart={startRecording}
                                                             onTouchEnd={stopRecording}
                                                             className={`
-                                                                 w-full py-4 rounded-xl border-2 border-black font-bold text-xl flex items-center justify-center gap-3 transition-all
-                                                                 ${isRecording ? 'bg-red-500 text-white scale-95' : 'bg-red-100 text-red-900 hover:bg-red-200'}
-                                                            `}
+                                                                  w-full py-4 rounded-xl border-2 border-black font-bold text-xl flex items-center justify-center gap-3 transition-all
+                                                                  ${isRecording ? 'bg-red-500 text-white scale-95' : 'bg-red-100 text-red-900 hover:bg-red-200'}
+                                                             `}
                                                        >
                                                             {isRecording ? <><Square fill="currentColor" /> RECORDING...</> : <><Mic /> HOLD TO RECORD</>}
                                                        </button>
+                                                       <div className="flex items-center justify-center">
+                                                            <label className="cursor-pointer flex items-center gap-2 text-sm font-bold text-gray-500 hover:text-black transition-colors">
+                                                                 <Upload size={16} /> Upload Audio File
+                                                                 <input
+                                                                      type="file"
+                                                                      accept="audio/*"
+                                                                      className="hidden"
+                                                                      onChange={(e) => handleFileUpload(e, editingRow.id)}
+                                                                 />
+                                                            </label>
+                                                       </div>
                                                   </div>
 
                                                   {editingRow.sampleData && (
@@ -1299,6 +2030,49 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
                                                                            onChange={(e) => updateRow(editingRow.id, { trimEnd: parseFloat(e.target.value) })}
                                                                            className="w-full h-2 accent-black"
                                                                       />
+                                                                 </div>
+                                                            </div>
+                                                       </div>
+                                                  )}
+
+                                                  {/* AUDIO TRACK SPECIFIC SETTINGS */}
+                                                  {editingRow.type === 'AUDIO' && (
+                                                       <div className="bg-green-50 p-4 rounded-xl border-2 border-green-200 space-y-4">
+                                                            <h5 className="font-bold text-green-800 flex items-center gap-2"><Sliders size={16} /> Audio Track Settings</h5>
+
+                                                            <div className="space-y-2">
+                                                                 <label className="text-xs font-bold text-green-700">Playback Speed (Pitch Shift)</label>
+                                                                 <input
+                                                                      type="range"
+                                                                      min="0.5" max="2.0" step="0.1"
+                                                                      value={editingRow.audioSettings?.playbackRate ?? 1.0}
+                                                                      onChange={(e) => updateRow(editingRow.id, {
+                                                                           audioSettings: { ...editingRow.audioSettings, playbackRate: parseFloat(e.target.value) } as any
+                                                                      })}
+                                                                      className="w-full accent-green-600"
+                                                                 />
+                                                                 <div className="flex justify-between text-xs font-bold text-green-600">
+                                                                      <span>0.5x</span>
+                                                                      <span>{editingRow.audioSettings?.playbackRate ?? 1.0}x</span>
+                                                                      <span>2.0x</span>
+                                                                 </div>
+                                                            </div>
+
+                                                            <div className="space-y-2">
+                                                                 <label className="text-xs font-bold text-green-700">Pitch Correction (Semitones)</label>
+                                                                 <input
+                                                                      type="range"
+                                                                      min="-12" max="12" step="1"
+                                                                      value={editingRow.audioSettings?.pitch ?? 0}
+                                                                      onChange={(e) => updateRow(editingRow.id, {
+                                                                           audioSettings: { ...editingRow.audioSettings, pitch: parseFloat(e.target.value) } as any
+                                                                      })}
+                                                                      className="w-full accent-green-600"
+                                                                 />
+                                                                 <div className="flex justify-between text-xs font-bold text-green-600">
+                                                                      <span>-12</span>
+                                                                      <span>{editingRow.audioSettings?.pitch ?? 0}</span>
+                                                                      <span>+12</span>
                                                                  </div>
                                                             </div>
                                                        </div>

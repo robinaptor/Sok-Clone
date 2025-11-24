@@ -184,10 +184,32 @@ export interface LevelObject {
   activeAnimation?: ActiveAnimation;
 }
 
+export interface AudioClip {
+  id: string;
+  startStep: number; // Float, step index where clip starts
+  durationSteps: number; // Float, visual length in steps
+  offset: number; // Float, offset in seconds from start of sample
+  isLooping: boolean;
+  originalDurationSteps?: number; // Float, original length of the sample in steps
+}
+
+export interface AudioSettings {
+  pitch: number; // Semitones
+  playbackRate: number; // Speed (0.5x - 2x)
+  volume: number;
+  trimStart: number; // Seconds
+  trimEnd: number; // Seconds
+  eq: {
+    high: number; // Gain dB
+    mid: number;
+    low: number;
+  };
+}
+
 export interface MusicRow {
   id: string;
   name: string;
-  type: 'SYNTH' | 'SAMPLE';
+  type: 'SYNTH' | 'SAMPLE' | 'AUDIO';
   color?: string;
 
   // Synth specific
@@ -202,6 +224,10 @@ export interface MusicRow {
   sampleData?: string; // Base64
   trimStart?: number; // 0-1
   trimEnd?: number; // 0-1
+
+  // Audio Track specific
+  audioClips?: AudioClip[];
+  audioSettings?: AudioSettings;
 
   // Mixer controls
   volume?: number; // 0 to 1

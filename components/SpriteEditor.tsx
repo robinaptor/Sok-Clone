@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Actor } from '../types';
 import { CANVAS_SIZE } from '../constants';
-import { Trash2, Pencil, Eraser, PaintBucket, RefreshCw, Plus, Copy, Circle, ChevronRight, Play, Square, Layers } from 'lucide-react';
+import { Trash2, Pencil, Eraser, PaintBucket, RefreshCw, Plus, Copy, Circle, ChevronRight, Play, Square, Layers, Lasso, Scissors, Clipboard, X } from 'lucide-react';
 
 interface SpriteEditorProps {
     actor: Actor;
@@ -9,14 +9,42 @@ interface SpriteEditorProps {
     onDelete: (actorId: string) => void;
     isHero: boolean;
 }
+interface FloatingLayer {
+    imageData: ImageData;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
 
 export const SpriteEditor: React.FC<SpriteEditorProps> = ({ actor, onUpdate, onDelete, isHero }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
+    const selectionCanvasRef = useRef<HTMLCanvasElement>(null);
     const [name, setName] = useState(actor.name);
     const [color, setColor] = useState('#000000');
-    const [tool, setTool] = useState<'PENCIL' | 'ERASER' | 'FILL'>('PENCIL');
+    const [tool, setTool] = useState<'PENCIL' | 'ERASER' | 'FILL' | 'SELECT'>('PENCIL');
+
+    // Commit floating layer when tool changes (if not SELECT)
+    useEffect(() => {
+        if (tool !== 'SELECT' && floatingLayer) {
+            commitFloatingLayer();
+        }
+    }, [tool]);
+
     const [brushSize, setBrushSize] = useState<number>(5); // Default Medium
     const [isDrawing, setIsDrawing] = useState(false);
+
+    // SELECTION STATE
+    const [selectionPath, setSelectionPath] = useState<{ x: number, y: number }[]>([]);
+    const [isSelectionActive, setIsSelectionActive] = useState(false);
+    const [selectionClipboard, setSelectionClipboard] = useState<ImageData | null>(null);
+
+    // TRANSFORM STATE
+    const [floatingLayer, setFloatingLayer] = useState<FloatingLayer | null>(null);
+    const [transformMode, setTransformMode] = useState<'NONE' | 'MOVE' | 'RESIZE_TL' | 'RESIZE_TR' | 'RESIZE_BL' | 'RESIZE_BR'>('NONE');
+    const [dragStart, setDragStart] = useState<{ x: number, y: number } | null>(null);
+    const [initialLayerState, setInitialLayerState] = useState<FloatingLayer | null>(null);
+    const [cursor, setCursor] = useState('crosshair');
 
     // UI STATE
     const [showBrushSizes, setShowBrushSizes] = useState(false);
@@ -66,6 +94,92 @@ export const SpriteEditor: React.FC<SpriteEditorProps> = ({ actor, onUpdate, onD
             }
         }
     }, [currentFrameIdx, frames]);
+
+    // Draw Selection Overlay & Floating Layer
+    useEffect(() => {
+        const canvas = selectionCanvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        const dpr = window.devicePixelRatio || 1;
+        if (canvas.width !== CANVAS_SIZE * dpr) {
+            canvas.width = CANVAS_SIZE * dpr;
+            canvas.height = CANVAS_SIZE * dpr;
+            ctx.scale(dpr, dpr);
+        }
+
+        ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+        ctx.imageSmoothingEnabled = false;
+
+        // Draw Floating Layer
+        if (floatingLayer) {
+            // Create temp canvas to draw ImageData
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = floatingLayer.imageData.width;
+            tempCanvas.height = floatingLayer.imageData.height;
+            const tempCtx = tempCanvas.getContext('2d');
+            if (tempCtx) {
+                tempCtx.putImageData(floatingLayer.imageData, 0, 0);
+                ctx.drawImage(tempCanvas, floatingLayer.x, floatingLayer.y, floatingLayer.width, floatingLayer.height);
+            }
+
+            // Draw Border around floating layer
+            ctx.strokeStyle = '#9333ea'; // Purple
+            ctx.lineWidth = 1;
+            ctx.setLineDash([4, 4]);
+            ctx.strokeRect(floatingLayer.x, floatingLayer.y, floatingLayer.width, floatingLayer.height);
+            ctx.setLineDash([]);
+
+            // Draw Resize Handles
+            const handleSize = 6;
+            ctx.fillStyle = '#fff';
+            ctx.strokeStyle = '#9333ea';
+
+            const handles = [
+                { x: floatingLayer.x, y: floatingLayer.y }, // TL
+                { x: floatingLayer.x + floatingLayer.width, y: floatingLayer.y }, // TR
+                { x: floatingLayer.x, y: floatingLayer.y + floatingLayer.height }, // BL
+                { x: floatingLayer.x + floatingLayer.width, y: floatingLayer.y + floatingLayer.height } // BR
+            ];
+
+            handles.forEach(h => {
+                ctx.fillRect(h.x - handleSize / 2, h.y - handleSize / 2, handleSize, handleSize);
+                ctx.strokeRect(h.x - handleSize / 2, h.y - handleSize / 2, handleSize, handleSize);
+            });
+        }
+
+        // Draw Selection Path (only if no floating layer, or if we want to show original selection?)
+        // If floating layer exists, the selection path is technically "moved" with it. 
+        // For simplicity, let's hide the original selection path when floating layer is active.
+        if (selectionPath.length > 0 && !floatingLayer) {
+            ctx.beginPath();
+            ctx.moveTo(selectionPath[0].x, selectionPath[0].y);
+            for (let i = 1; i < selectionPath.length; i++) {
+                ctx.lineTo(selectionPath[i].x, selectionPath[i].y);
+            }
+            if (isSelectionActive) {
+                ctx.closePath();
+            }
+
+            ctx.strokeStyle = '#000'; // Black dashed line
+            ctx.lineWidth = 1;
+            ctx.setLineDash([4, 4]);
+            ctx.stroke();
+
+            // White contrast line
+            ctx.strokeStyle = '#fff';
+            ctx.setLineDash([0, 4, 4, 0]); // Offset dash
+            ctx.stroke();
+
+            ctx.setLineDash([]); // Reset
+
+            if (isSelectionActive) {
+                ctx.fillStyle = 'rgba(147, 51, 234, 0.1)'; // Light purple fill
+                ctx.fill();
+            }
+        }
+    }, [selectionPath, isSelectionActive, floatingLayer]);
 
     // Preview Animation Loop
     useEffect(() => {
@@ -151,11 +265,194 @@ export const SpriteEditor: React.FC<SpriteEditorProps> = ({ actor, onUpdate, onD
     };
 
     // --- FLOOD FILL LOGIC ---
+    const liftSelection = (): FloatingLayer | null => {
+        const canvas = canvasRef.current;
+        const ctx = canvas?.getContext('2d');
+        if (!ctx || !canvas || selectionPath.length < 3) return null;
+
+        const dpr = window.devicePixelRatio || 1;
+
+        // 1. Calculate bounding box of selection
+        let minX = CANVAS_SIZE, minY = CANVAS_SIZE, maxX = 0, maxY = 0;
+        selectionPath.forEach(p => {
+            minX = Math.min(minX, p.x);
+            minY = Math.min(minY, p.y);
+            maxX = Math.max(maxX, p.x);
+            maxY = Math.max(maxY, p.y);
+        });
+
+        // Add some padding or ensure integers
+        minX = Math.floor(minX);
+        minY = Math.floor(minY);
+        maxX = Math.ceil(maxX);
+        maxY = Math.ceil(maxY);
+        const w = maxX - minX;
+        const h = maxY - minY;
+
+        if (w <= 0 || h <= 0) return null;
+
+        // 2. Extract pixels
+        // We need to mask it first to only get the selected pixels, not the bounding box rect
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = w * dpr;
+        tempCanvas.height = h * dpr;
+        const tempCtx = tempCanvas.getContext('2d');
+        if (!tempCtx) return null;
+
+        // Draw image offset by -minX, -minY
+        tempCtx.drawImage(canvas, -minX * dpr, -minY * dpr);
+
+        // Mask with selection path (shifted)
+        tempCtx.globalCompositeOperation = 'destination-in';
+        tempCtx.beginPath();
+        tempCtx.moveTo((selectionPath[0].x - minX) * dpr, (selectionPath[0].y - minY) * dpr);
+        selectionPath.forEach(p => tempCtx.lineTo((p.x - minX) * dpr, (p.y - minY) * dpr));
+        tempCtx.closePath();
+        tempCtx.fill();
+
+        const imageData = tempCtx.getImageData(0, 0, w * dpr, h * dpr);
+
+        // 3. Create Floating Layer
+        const newLayer: FloatingLayer = {
+            imageData,
+            x: minX,
+            y: minY,
+            width: w,
+            height: h
+        };
+        setFloatingLayer(newLayer);
+
+        // 4. Clear from Main Canvas
+        ctx.save();
+        const path = new Path2D();
+        path.moveTo(selectionPath[0].x, selectionPath[0].y);
+        selectionPath.forEach(p => path.lineTo(p.x, p.y));
+        path.closePath();
+        ctx.clip(path);
+        ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+        ctx.restore();
+
+        saveCurrentFrame(); // Save the "cut" state
+        return newLayer;
+    };
+
+    const commitFloatingLayer = () => {
+        if (!floatingLayer) return;
+        const canvas = canvasRef.current;
+        const ctx = canvas?.getContext('2d');
+        if (!ctx || !canvas) return;
+
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = floatingLayer.imageData.width;
+        tempCanvas.height = floatingLayer.imageData.height;
+        const tempCtx = tempCanvas.getContext('2d');
+
+        if (tempCtx) {
+            tempCtx.putImageData(floatingLayer.imageData, 0, 0);
+            ctx.drawImage(tempCanvas, floatingLayer.x, floatingLayer.y, floatingLayer.width, floatingLayer.height);
+            saveCurrentFrame();
+        }
+
+        setFloatingLayer(null);
+        // Keep selection active? Or clear it? 
+        // Usually committing clears selection or updates it to new bounds.
+        // For simplicity, let's clear selection path as it no longer matches the pixels if moved.
+        setSelectionPath([]);
+        setIsSelectionActive(false);
+    };
+
     const hexToRgba = (hex: string) => {
         const r = parseInt(hex.slice(1, 3), 16);
         const g = parseInt(hex.slice(3, 5), 16);
         const b = parseInt(hex.slice(5, 7), 16);
         return [r, g, b, 255];
+    };
+
+    // --- SELECTION OPERATIONS ---
+    const deleteSelection = () => {
+        const canvas = canvasRef.current;
+        const ctx = canvas?.getContext('2d');
+        if (!ctx || !canvas || selectionPath.length < 3) return;
+
+        ctx.save();
+        const path = new Path2D();
+        path.moveTo(selectionPath[0].x, selectionPath[0].y);
+        selectionPath.forEach(p => path.lineTo(p.x, p.y));
+        path.closePath();
+        ctx.clip(path);
+        ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+        ctx.restore();
+        saveCurrentFrame();
+    };
+
+    const copySelection = () => {
+        const canvas = canvasRef.current;
+        const ctx = canvas?.getContext('2d');
+        if (!ctx || !canvas || selectionPath.length < 3) return;
+
+        const dpr = window.devicePixelRatio || 1;
+
+        // Calculate bounding box
+        let minX = CANVAS_SIZE, minY = CANVAS_SIZE, maxX = 0, maxY = 0;
+        selectionPath.forEach(p => {
+            minX = Math.min(minX, p.x);
+            minY = Math.min(minY, p.y);
+            maxX = Math.max(maxX, p.x);
+            maxY = Math.max(maxY, p.y);
+        });
+        minX = Math.floor(minX);
+        minY = Math.floor(minY);
+        maxX = Math.ceil(maxX);
+        maxY = Math.ceil(maxY);
+        const w = maxX - minX;
+        const h = maxY - minY;
+
+        if (w <= 0 || h <= 0) return;
+
+        // Create a temp canvas to extract the selected area
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = w * dpr;
+        tempCanvas.height = h * dpr;
+        const tempCtx = tempCanvas.getContext('2d');
+        if (!tempCtx) return;
+
+        // Draw image offset
+        tempCtx.drawImage(canvas, -minX * dpr, -minY * dpr);
+
+        // Draw the mask
+        tempCtx.globalCompositeOperation = 'destination-in';
+        tempCtx.beginPath();
+        tempCtx.moveTo((selectionPath[0].x - minX) * dpr, (selectionPath[0].y - minY) * dpr);
+        selectionPath.forEach(p => tempCtx.lineTo((p.x - minX) * dpr, (p.y - minY) * dpr));
+        tempCtx.closePath();
+        tempCtx.fill();
+
+        setSelectionClipboard(tempCtx.getImageData(0, 0, w * dpr, h * dpr));
+    };
+
+    const pasteSelection = () => {
+        if (!selectionClipboard) return;
+
+        const dpr = window.devicePixelRatio || 1;
+
+        // Paste as floating layer centered
+        const w = selectionClipboard.width / dpr;
+        const h = selectionClipboard.height / dpr;
+        const x = (CANVAS_SIZE - w) / 2;
+        const y = (CANVAS_SIZE - h) / 2;
+
+        setFloatingLayer({
+            imageData: selectionClipboard,
+            x, y, width: w, height: h
+        });
+
+        // Switch to select tool to allow manipulation
+        setTool('SELECT');
+    };
+
+    const cutSelection = () => {
+        copySelection();
+        deleteSelection();
     };
 
     const floodFill = (startX: number, startY: number, fillColor: string) => {
@@ -166,7 +463,18 @@ export const SpriteEditor: React.FC<SpriteEditorProps> = ({ actor, onUpdate, onD
         const dpr = window.devicePixelRatio || 1;
         const w = canvas.width;
         const h = canvas.height;
-        const imgData = ctx.getImageData(0, 0, w, h);
+
+        // Create a temp canvas for the flood fill operation
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = w;
+        tempCanvas.height = h;
+        const tempCtx = tempCanvas.getContext('2d');
+        if (!tempCtx) return;
+
+        // Copy current state to temp
+        tempCtx.drawImage(canvas, 0, 0);
+
+        const imgData = tempCtx.getImageData(0, 0, w, h);
         const data = imgData.data;
         const px = Math.floor(startX * dpr);
         const py = Math.floor(startY * dpr);
@@ -206,18 +514,105 @@ export const SpriteEditor: React.FC<SpriteEditorProps> = ({ actor, onUpdate, onD
                 if (cy < h - 1) stack.push([cx, cy + 1]);
             }
         }
-        ctx.putImageData(imgData, 0, 0);
+
+        tempCtx.putImageData(imgData, 0, 0);
+
+        // Apply to main canvas with optional clipping
+        if (isSelectionActive && selectionPath.length > 2) {
+            ctx.save();
+            const path = new Path2D();
+            path.moveTo(selectionPath[0].x, selectionPath[0].y);
+            selectionPath.forEach(p => path.lineTo(p.x, p.y));
+            path.closePath();
+            ctx.clip(path);
+            ctx.drawImage(tempCanvas, 0, 0, CANVAS_SIZE, CANVAS_SIZE); // Draw the filled version masked
+            ctx.restore();
+        } else {
+            ctx.drawImage(tempCanvas, 0, 0, CANVAS_SIZE, CANVAS_SIZE);
+        }
+
         saveCurrentFrame();
     };
 
+    const isPointInPath = (x: number, y: number, path: { x: number, y: number }[]) => {
+        // Ray casting algorithm
+        let inside = false;
+        for (let i = 0, j = path.length - 1; i < path.length; j = i++) {
+            const xi = path[i].x, yi = path[i].y;
+            const xj = path[j].x, yj = path[j].y;
+            const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+            if (intersect) inside = !inside;
+        }
+        return inside;
+    };
+
     const handleMouseDown = (e: React.MouseEvent) => {
+        const { x, y } = getCoordinates(e);
+
+        // 1. Handle Floating Layer Interaction
+        if (floatingLayer) {
+            const handleSize = 10; // Slightly larger hit area
+            // Check Handles
+            const handles = [
+                { type: 'RESIZE_TL', x: floatingLayer.x, y: floatingLayer.y },
+                { type: 'RESIZE_TR', x: floatingLayer.x + floatingLayer.width, y: floatingLayer.y },
+                { type: 'RESIZE_BL', x: floatingLayer.x, y: floatingLayer.y + floatingLayer.height },
+                { type: 'RESIZE_BR', x: floatingLayer.x + floatingLayer.width, y: floatingLayer.y + floatingLayer.height }
+            ];
+
+            for (const h of handles) {
+                if (x >= h.x - handleSize / 2 && x <= h.x + handleSize / 2 &&
+                    y >= h.y - handleSize / 2 && y <= h.y + handleSize / 2) {
+                    setTransformMode(h.type as any);
+                    setDragStart({ x, y });
+                    setInitialLayerState({ ...floatingLayer });
+                    return;
+                }
+            }
+
+            // Check Inside Floating Layer
+            if (x >= floatingLayer.x && x <= floatingLayer.x + floatingLayer.width &&
+                y >= floatingLayer.y && y <= floatingLayer.y + floatingLayer.height) {
+                setTransformMode('MOVE');
+                setDragStart({ x, y });
+                setInitialLayerState({ ...floatingLayer });
+                return;
+            }
+
+            // Click Outside -> Commit
+            commitFloatingLayer();
+            // Fallthrough to normal tool usage (e.g. start new selection or draw)
+        }
+
         setIsDrawing(true);
+
+        if (tool === 'SELECT') {
+            // Check if clicking inside existing selection to LIFT it
+            if (isSelectionActive && selectionPath.length > 2 && isPointInPath(x, y, selectionPath)) {
+                const liftedLayer = liftSelection();
+                if (liftedLayer) {
+                    setTransformMode('MOVE');
+                    setDragStart({ x, y });
+                    setInitialLayerState(liftedLayer);
+                }
+                return;
+            }
+
+            // Start new selection
+            if (isSelectionActive) {
+                // If we didn't click inside, we are deselecting/starting new
+                setIsSelectionActive(false);
+                setSelectionPath([]);
+            }
+            setSelectionPath([{ x, y }]);
+            return;
+        }
+
+        // ... (Rest of drawing logic)
         const canvas = canvasRef.current;
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
-
-        const { x, y } = getCoordinates(e);
 
         if (tool === 'FILL') {
             floodFill(x, y, color);
@@ -232,22 +627,143 @@ export const SpriteEditor: React.FC<SpriteEditorProps> = ({ actor, onUpdate, onD
         ctx.lineWidth = tool === 'ERASER' ? brushSize * 2 : brushSize;
         ctx.strokeStyle = tool === 'ERASER' ? 'rgba(255,255,255,1)' : color;
         ctx.globalCompositeOperation = tool === 'ERASER' ? 'destination-out' : 'source-over';
+
+        // Apply Clipping if Selection is Active
+        if (isSelectionActive && selectionPath.length > 2) {
+            ctx.save();
+            const path = new Path2D();
+            path.moveTo(selectionPath[0].x, selectionPath[0].y);
+            selectionPath.forEach(p => path.lineTo(p.x, p.y));
+            path.closePath();
+            ctx.clip(path);
+        }
     };
 
     const handleMouseMove = (e: React.MouseEvent) => {
+        const { x, y } = getCoordinates(e);
+
+        // Update Cursor and Handle Drag
+        if (floatingLayer) {
+            if (transformMode !== 'NONE' && dragStart && initialLayerState) {
+                // ... (Existing Drag Logic)
+                const dx = x - dragStart.x;
+                const dy = y - dragStart.y;
+
+                if (transformMode === 'MOVE') {
+                    setFloatingLayer({
+                        ...floatingLayer,
+                        x: initialLayerState.x + dx,
+                        y: initialLayerState.y + dy
+                    });
+                } else {
+                    // Resize Logic
+                    let newX = initialLayerState.x;
+                    let newY = initialLayerState.y;
+                    let newW = initialLayerState.width;
+                    let newH = initialLayerState.height;
+
+                    if (transformMode === 'RESIZE_BR') {
+                        newW = initialLayerState.width + dx;
+                        newH = initialLayerState.height + dy;
+                    } else if (transformMode === 'RESIZE_BL') {
+                        newX = initialLayerState.x + dx;
+                        newW = initialLayerState.width - dx;
+                        newH = initialLayerState.height + dy;
+                    } else if (transformMode === 'RESIZE_TR') {
+                        newY = initialLayerState.y + dy;
+                        newW = initialLayerState.width + dx;
+                        newH = initialLayerState.height - dy;
+                    } else if (transformMode === 'RESIZE_TL') {
+                        newX = initialLayerState.x + dx;
+                        newY = initialLayerState.y + dy;
+                        newW = initialLayerState.width - dx;
+                        newH = initialLayerState.height - dy;
+                    }
+
+                    setFloatingLayer({
+                        ...floatingLayer,
+                        x: newX,
+                        y: newY,
+                        width: newW,
+                        height: newH
+                    });
+                }
+                return;
+            } else {
+                // Hover Logic for Cursor
+                const handleSize = 10;
+                let newCursor = 'default';
+
+                // Check Handles
+                const handles = [
+                    { type: 'nwse-resize', x: floatingLayer.x, y: floatingLayer.y },
+                    { type: 'nesw-resize', x: floatingLayer.x + floatingLayer.width, y: floatingLayer.y },
+                    { type: 'nesw-resize', x: floatingLayer.x, y: floatingLayer.y + floatingLayer.height },
+                    { type: 'nwse-resize', x: floatingLayer.x + floatingLayer.width, y: floatingLayer.y + floatingLayer.height }
+                ];
+
+                let overHandle = false;
+                for (const h of handles) {
+                    if (x >= h.x - handleSize / 2 && x <= h.x + handleSize / 2 &&
+                        y >= h.y - handleSize / 2 && y <= h.y + handleSize / 2) {
+                        newCursor = h.type;
+                        overHandle = true;
+                        break;
+                    }
+                }
+
+                if (!overHandle) {
+                    if (x >= floatingLayer.x && x <= floatingLayer.x + floatingLayer.width &&
+                        y >= floatingLayer.y && y <= floatingLayer.y + floatingLayer.height) {
+                        newCursor = 'move';
+                    } else {
+                        newCursor = 'crosshair';
+                    }
+                }
+                setCursor(newCursor);
+            }
+        } else {
+            if (cursor !== 'crosshair') setCursor('crosshair');
+        }
+
         if (!isDrawing) return;
+
+        if (tool === 'SELECT') {
+            setSelectionPath(prev => [...prev, { x, y }]);
+            return;
+        }
+
         const canvas = canvasRef.current;
         const ctx = canvas?.getContext('2d');
         if (!ctx || !canvas) return;
-        const { x, y } = getCoordinates(e);
+
         ctx.lineTo(x, y);
         ctx.stroke();
     };
 
     const handleMouseUp = () => {
+        if (transformMode !== 'NONE') {
+            setTransformMode('NONE');
+            setDragStart(null);
+            setInitialLayerState(null);
+            return;
+        }
+
         if (isDrawing) {
             setIsDrawing(false);
-            saveCurrentFrame();
+
+            if (tool === 'SELECT') {
+                setIsSelectionActive(true);
+                // Don't save frame for selection
+            } else {
+                // Restore context if it was clipped
+                if (isSelectionActive && selectionPath.length > 2) {
+                    const canvas = canvasRef.current;
+                    const ctx = canvas?.getContext('2d');
+                    if (ctx) ctx.restore();
+                }
+                saveCurrentFrame();
+            }
         }
     };
 
@@ -302,11 +818,35 @@ export const SpriteEditor: React.FC<SpriteEditorProps> = ({ actor, onUpdate, onD
                         <button onClick={() => setTool('FILL')} className={`h-14 sketch-btn text-2xl ${tool === 'FILL' ? 'sketch-btn-active bg-blue-200' : ''}`} data-help="Fill Tool: Fill an area with color">
                             <PaintBucket size={24} strokeWidth={2.5} />
                         </button>
+                        <button onClick={() => setTool('SELECT')} className={`h-14 sketch-btn text-2xl ${tool === 'SELECT' ? 'sketch-btn-active bg-purple-200' : ''}`} data-help="Lasso Tool: Select an area">
+                            <Lasso size={24} strokeWidth={2.5} />
+                        </button>
                         <button onClick={clearCanvas} className="h-14 sketch-btn hover:bg-red-100 text-red-500" data-help="Clear the entire canvas">
                             <RefreshCw size={24} strokeWidth={2.5} />
                         </button>
                     </div>
                 </div>
+
+                {/* Selection Actions */}
+                {isSelectionActive && (
+                    <div className="flex flex-col gap-2 animate-in fade-in slide-in-from-left-5 duration-200">
+                        <label className="font-bold flex items-center gap-2 text-purple-600"><Lasso size={16} /> SELECTION</label>
+                        <div className="grid grid-cols-2 gap-2">
+                            <button onClick={cutSelection} className="h-10 sketch-btn text-sm flex items-center justify-center gap-1 hover:bg-red-50 text-red-600" data-help="Cut selection">
+                                <Scissors size={16} /> CUT
+                            </button>
+                            <button onClick={copySelection} className="h-10 sketch-btn text-sm flex items-center justify-center gap-1 hover:bg-blue-50 text-blue-600" data-help="Copy selection">
+                                <Copy size={16} /> COPY
+                            </button>
+                            <button onClick={pasteSelection} disabled={!selectionClipboard} className={`h-10 sketch-btn text-sm flex items-center justify-center gap-1 ${!selectionClipboard ? 'opacity-50 cursor-not-allowed' : 'hover:bg-green-50 text-green-600'}`} data-help="Paste selection">
+                                <Clipboard size={16} /> PASTE
+                            </button>
+                            <button onClick={() => { setIsSelectionActive(false); setSelectionPath([]); }} className="h-10 sketch-btn text-sm flex items-center justify-center gap-1 hover:bg-gray-100" data-help="Deselect">
+                                <X size={16} /> CLEAR
+                            </button>
+                        </div>
+                    </div>
+                )}
 
                 {/* Brush Size */}
                 <div className="flex flex-col gap-2">
@@ -402,16 +942,23 @@ export const SpriteEditor: React.FC<SpriteEditorProps> = ({ actor, onUpdate, onD
 
                     <canvas
                         ref={canvasRef}
-                        onMouseDown={handleMouseDown}
-                        onMouseMove={handleMouseMove}
-                        onMouseUp={handleMouseUp}
-                        onMouseLeave={handleMouseUp}
-                        className="bg-transparent cursor-crosshair touch-none w-full h-full object-contain image-pixelated relative z-10"
+                        className="bg-transparent w-full h-full object-contain image-pixelated relative z-10"
                         style={{
                             backgroundImage: 'radial-gradient(#e5e7eb 2px, transparent 2px)',
                             backgroundSize: '20px 20px',
                             imageRendering: 'pixelated'
                         }}
+                    />
+
+                    {/* SELECTION OVERLAY CANVAS */}
+                    <canvas
+                        ref={selectionCanvasRef}
+                        onMouseDown={handleMouseDown}
+                        onMouseMove={handleMouseMove}
+                        onMouseUp={handleMouseUp}
+                        onMouseLeave={handleMouseUp}
+                        className="absolute top-0 left-0 w-full h-full touch-none z-20"
+                        style={{ imageRendering: 'pixelated', cursor: cursor }}
                     />
                 </div>
             </div>
