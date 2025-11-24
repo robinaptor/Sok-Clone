@@ -29,18 +29,18 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
      // Initialize rows
      const [rows, setRows] = useState<MusicRow[]>(initialTrack?.rows || generateDefaultRows());
 
-     // Grid: [step][rowIndex] -> boolean
-     const [grid, setGrid] = useState<boolean[][]>(() => {
+     // Grid: [step][rowIndex] -> duration (0 = no note, >0 = note length in steps)
+     const [grid, setGrid] = useState<number[][]>(() => {
           if (initialTrack?.sequence) {
                return Array(STEPS).fill(null).map((_, step) => {
-                    const stepNotes = Array(rows.length).fill(false);
+                    const stepNotes = Array(rows.length).fill(0);
                     initialTrack.sequence?.filter(n => n.time === step).forEach(n => {
-                         if (n.note < stepNotes.length) stepNotes[n.note] = true;
+                         if (n.note < stepNotes.length) stepNotes[n.note] = n.duration || 1;
                     });
                     return stepNotes;
                });
           } else {
-               return Array(STEPS).fill(null).map(() => Array(rows.length).fill(false));
+               return Array(STEPS).fill(null).map(() => Array(rows.length).fill(0));
           }
      });
 
@@ -59,6 +59,17 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
      const timerIDRef = useRef<number | null>(null);
      const stepRef = useRef(0);
      const waveformCanvasRef = useRef<HTMLCanvasElement>(null);
+
+     // Resizing State
+     const [resizingNote, setResizingNote] = useState<{ step: number, row: number } | null>(null);
+
+     useEffect(() => {
+          const handleMouseUp = () => {
+               if (resizingNote) setResizingNote(null);
+          };
+          window.addEventListener('mouseup', handleMouseUp);
+          return () => window.removeEventListener('mouseup', handleMouseUp);
+     }, [resizingNote]);
 
      useEffect(() => {
           const row = rows.find(r => r.id === editingRowId);
@@ -112,9 +123,9 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
           setGrid(prevGrid => {
                return prevGrid.map(stepNotes => {
                     if (stepNotes.length === rows.length) return stepNotes;
-                    const newStepNotes = Array(rows.length).fill(false);
-                    stepNotes.forEach((isActive, i) => {
-                         if (i < newStepNotes.length) newStepNotes[i] = isActive;
+                    const newStepNotes = Array(rows.length).fill(0);
+                    stepNotes.forEach((duration, i) => {
+                         if (i < newStepNotes.length) newStepNotes[i] = duration;
                     });
                     return newStepNotes;
                });
@@ -129,7 +140,7 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
           return 440 * Math.pow(2, semitonesFromA4 / 12);
      };
 
-     const playRowSound = (rowIndex: number, time: number) => {
+     const playRowSound = (rowIndex: number, time: number, durationInSteps: number = 1) => {
           if (!audioCtxRef.current) return;
           const ctx = audioCtxRef.current;
           const row = rows[rowIndex];
@@ -139,6 +150,11 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
           if (soloRowId && soloRowId !== row.id) return;
 
           const volume = row.volume ?? 1.0;
+
+          // Calculate duration in seconds
+          const secondsPerBeat = 60.0 / tempo;
+          const stepDuration = 0.25 * secondsPerBeat; // 16th note
+          const noteDuration = durationInSteps * stepDuration;
 
           if (row.type === 'SAMPLE' && row.sampleData) {
                fetch(row.sampleData)
@@ -158,22 +174,14 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
                          const duration = audioBuffer.duration;
                          const startOffset = (row.trimStart || 0) * duration;
                          const endOffset = (row.trimEnd || 1) * duration;
-                         let playDuration = Math.max(0, endOffset - startOffset);
+                         const sampleDuration = Math.max(0.001, endOffset - startOffset); // Avoid div by 0
 
-                         // Apply Note Duration Gating
-                         if (row.duration) {
-                              const secondsPerBeat = 60.0 / tempo;
-                              let noteDuration = 0.2;
-                              if (row.duration === '16n') noteDuration = 0.25 * secondsPerBeat;
-                              if (row.duration === '8n') noteDuration = 0.5 * secondsPerBeat;
-                              if (row.duration === '4n') noteDuration = 1.0 * secondsPerBeat;
-                              if (row.duration === '2n') noteDuration = 2.0 * secondsPerBeat;
-                              if (row.duration === '1n') noteDuration = 4.0 * secondsPerBeat;
+                         // Calculate Playback Rate to stretch sample to note duration
+                         const playbackRate = sampleDuration / noteDuration;
+                         source.playbackRate.value = playbackRate;
 
-                              playDuration = Math.min(playDuration, noteDuration);
-                         }
-
-                         source.start(time, startOffset, playDuration);
+                         // Play for the full note duration
+                         source.start(time, startOffset, noteDuration);
                     })
                     .catch(e => console.error("Error playing sample", e));
 
@@ -252,17 +260,6 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
                     osc.frequency.value = getFrequency(row.note || 'C4');
                     osc.type = 'square';
 
-                    // Duration Logic
-                    let noteDuration = 0.2; // Default 16th note approx
-                    if (row.duration) {
-                         const secondsPerBeat = 60.0 / tempo;
-                         if (row.duration === '16n') noteDuration = 0.25 * secondsPerBeat;
-                         if (row.duration === '8n') noteDuration = 0.5 * secondsPerBeat;
-                         if (row.duration === '4n') noteDuration = 1.0 * secondsPerBeat;
-                         if (row.duration === '2n') noteDuration = 2.0 * secondsPerBeat;
-                         if (row.duration === '1n') noteDuration = 4.0 * secondsPerBeat;
-                    }
-
                     gain.gain.setValueAtTime(0.1 * volume, time);
                     gain.gain.exponentialRampToValueAtTime(0.001, time + noteDuration);
 
@@ -289,9 +286,9 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
      };
 
      const scheduleNote = (stepNumber: number, time: number) => {
-          grid[stepNumber].forEach((isActive, rowIndex) => {
-               if (isActive) {
-                    playRowSound(rowIndex, time);
+          grid[stepNumber].forEach((duration, rowIndex) => {
+               if (duration > 0) {
+                    playRowSound(rowIndex, time, duration);
                }
           });
      };
@@ -312,10 +309,10 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
      };
 
      const handleSave = () => {
-          const sequence: { note: number, time: number }[] = [];
+          const sequence: { note: number, time: number, duration: number }[] = [];
           grid.forEach((stepNotes, step) => {
-               stepNotes.forEach((isActive, rowIndex) => {
-                    if (isActive) sequence.push({ note: rowIndex, time: step });
+               stepNotes.forEach((duration, rowIndex) => {
+                    if (duration > 0) sequence.push({ note: rowIndex, time: step, duration });
                });
           });
 
@@ -402,8 +399,115 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
 
      const editingRow = rows.find(r => r.id === editingRowId);
 
+     const sequencerGridRef = useRef<HTMLDivElement>(null); // Add this ref
+     const ignoreClickRef = useRef(false);
+
      return (
-          <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center font-['Gochi_Hand'] backdrop-blur-sm p-4">
+          <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center font-['Gochi_Hand'] backdrop-blur-sm p-4"
+               onMouseMove={(e) => {
+                    if (resizingNote && sequencerGridRef.current) {
+                         const { step: originalStep, row: rowIndex } = resizingNote;
+                         const gridRect = sequencerGridRef.current.getBoundingClientRect();
+
+                         // The grid rows have p-2 (0.5rem) padding.
+                         // We need to account for this to get the correct step index.
+                         // We can approximate 1rem = 16px, or measure it.
+                         // Since we don't have the row ref, we'll estimate padding based on the known class 'p-2'.
+                         // p-2 is usually 0.5rem. If root is 16px, that's 8px.
+                         // Total horizontal padding is 1rem (16px).
+
+                         // However, to be robust against zoom/font-size, we can try to derive it.
+                         // But for now, let's assume standard behavior or use a ratio.
+
+                         // Better yet: The step width is uniform.
+                         // Total Width = (16 * StepWidth) + Padding
+                         // StepWidth = (TotalWidth - Padding) / 16
+
+                         // Let's try to calculate pixels per rem from the grid width?
+                         // The grid is 16 steps of (4rem + 0.25rem gap) - last gap?
+                         // Actually flex gap puts gap between all items.
+                         // So 16 items + 15 gaps.
+                         // Total Content Width = 16 * 4rem + 15 * 0.25rem = 64 + 3.75 = 67.75rem.
+                         // Plus padding 1rem = 68.75rem.
+
+                         // So we can calculate the ratio.
+                         const totalRems = 68.75;
+                         const pixelsPerRem = gridRect.width / totalRems;
+                         const paddingLeft = 0.5 * pixelsPerRem;
+                         const stepWidth = 4.25 * pixelsPerRem; // 4rem cell + 0.25rem gap
+
+                         // Calculate mouse position relative to the content start
+                         const mouseX = e.clientX - gridRect.left - paddingLeft;
+
+                         // Calculate step index
+                         // We use Math.round to make it "snap" to the nearest step center?
+                         // Or Math.floor to be strict?
+                         // The user said "mal tiré" (badly pulled), implying it's sensitive.
+                         // If we use Math.round, it might feel more "magnetic".
+                         // But strictly, a step is a discrete slot.
+                         // Let's use Math.floor but add a small buffer (half step?) to make it feel like it snaps to the next one easier?
+                         // No, standard behavior is: if you are in the box, you are in the step.
+
+                         let currentStepUnderMouse = Math.floor(mouseX / stepWidth);
+
+                         // Clamp currentStepUnderMouse to valid range
+                         currentStepUnderMouse = Math.max(0, Math.min(STEPS - 1, currentStepUnderMouse));
+
+                         // Calculate new duration
+                         let newDuration = currentStepUnderMouse - originalStep + 1;
+
+                         // Ensure duration is at least 1
+                         newDuration = Math.max(1, newDuration);
+
+                         // Update the grid if the duration has changed
+                         setGrid(prevGrid => {
+                              const newGrid = [...prevGrid];
+                              const currentDuration = newGrid[originalStep][rowIndex];
+
+                              if (currentDuration !== newDuration) {
+                                   // Clear any cells that are now covered by the expanded note
+                                   // or were previously covered but are no longer
+                                   for (let i = 0; i < STEPS; i++) {
+                                        if (i !== originalStep && newGrid[i][rowIndex] > 0) {
+                                             // If a note starts at 'i' and its duration makes it overlap with the new note,
+                                             // we might need more complex logic, but for now, we assume notes don't overlap
+                                             // and we are only resizing the note at originalStep.
+                                        }
+                                   }
+
+                                   // If shortening, ensure we don't leave orphaned notes
+                                   if (newDuration < currentDuration) {
+                                        // No specific action needed here, as we are only changing the duration of the starting note.
+                                        // The rendering logic handles not showing covered cells.
+                                   }
+
+                                   // If expanding, ensure we don't overwrite existing notes that start in the expanded range
+                                   let canExpand = true;
+                                   for (let i = originalStep + 1; i < originalStep + newDuration; i++) {
+                                        if (i < STEPS && newGrid[i][rowIndex] > 0) {
+                                             // There's another note starting in the path of expansion, so we can't expand past it.
+                                             newDuration = i - originalStep;
+                                             break;
+                                        }
+                                   }
+
+                                   // Apply the new duration
+                                   newGrid[originalStep] = [...newGrid[originalStep]]; // Create a new array for the step
+                                   newGrid[originalStep][rowIndex] = newDuration;
+                                   return newGrid;
+                              }
+                              return prevGrid;
+                         });
+                    }
+               }}
+               onMouseUp={() => {
+                    if (resizingNote) {
+                         ignoreClickRef.current = true;
+                         setTimeout(() => { ignoreClickRef.current = false; }, 100);
+                    }
+                    setResizingNote(null);
+               }}
+          >
                <div className="sketch-box w-full max-w-[1400px] h-[90vh] flex flex-col gap-4 relative overflow-hidden text-black shadow-[8px_8px_0px_rgba(0,0,0,0.5)]">
 
                     {/* HEADER */}
@@ -508,43 +612,106 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
 
                               {/* RIGHT SIDE: SEQUENCER GRID */}
                               <div className="flex-1 overflow-x-auto relative">
-                                   <div className="min-w-max flex flex-col gap-2">
+                                   <div className="min-w-max flex flex-col gap-2" ref={sequencerGridRef}>
                                         {rows.map((row, rowIndex) => (
-                                             <div key={row.id} className="flex gap-1 h-[100px] bg-white rounded-xl border-2 border-black p-2 hover:shadow-[4px_4px_0px_rgba(0,0,0,0.1)] transition-all">
+                                             <div key={row.id} className="flex gap-1 h-[100px] bg-white rounded-xl border-2 border-black p-2 hover:shadow-[4px_4px_0px_rgba(0,0,0,0.1)] transition-all relative">
+                                                  {/* Grid Background */}
+                                                  <div className="absolute inset-0 flex gap-1 p-2 pointer-events-none">
+                                                       {Array(STEPS).fill(null).map((_, step) => (
+                                                            <div key={step} className={`flex-1 border-r border-gray-100 ${step % 4 === 3 ? 'border-gray-300' : ''}`} />
+                                                       ))}
+                                                  </div>
+
+                                                  {/* Grid Cells & Notes */}
                                                   {Array(STEPS).fill(null).map((_, step) => {
-                                                       const isActive = grid[step][rowIndex];
-                                                       const isCurrent = currentStep === step;
-                                                       const isBeat = step % 4 === 0;
+                                                       const duration = grid[step][rowIndex];
+                                                       const isCurrent = currentStep >= step && currentStep < step + (duration || 1);
 
-                                                       // Determine Color
-                                                       let bgClass = 'bg-white';
-                                                       let borderClass = 'border-gray-100';
-
-                                                       if (isActive) {
-                                                            bgClass = row.color || 'bg-gray-200';
-                                                            borderClass = 'border-black';
-                                                       } else if (isBeat) {
-                                                            bgClass = 'bg-gray-50';
-                                                            borderClass = 'border-gray-200';
+                                                       // Check if this cell is covered by a previous note
+                                                       let isCovered = false;
+                                                       for (let i = 1; i < 16; i++) {
+                                                            if (step - i >= 0 && grid[step - i][rowIndex] > i) {
+                                                                 isCovered = true;
+                                                                 break;
+                                                            }
                                                        }
 
-                                                       return (
-                                                            <div
-                                                                 key={step}
-                                                                 onClick={() => {
-                                                                      const newGrid = [...grid];
-                                                                      newGrid[step][rowIndex] = !isActive;
-                                                                      setGrid(newGrid);
-                                                                      if (!isActive) playRowSound(rowIndex, audioCtxRef.current?.currentTime || 0);
-                                                                 }}
-                                                                 className={`
-                                                                      w-16 h-full rounded-md cursor-pointer transition-all duration-75 border-2
-                                                                      ${bgClass} ${borderClass}
-                                                                      ${isActive ? 'shadow-[2px_2px_0px_rgba(0,0,0,0.2)] transform -translate-y-[1px]' : 'hover:border-gray-400'}
-                                                                      ${isCurrent ? 'ring-4 ring-purple-200 z-10' : ''}
-                                                                 `}
-                                                            />
-                                                       );
+                                                       if (isCovered) return null; // Don't render anything if covered
+
+                                                       if (duration > 0) {
+                                                            // RENDER NOTE
+                                                            return (
+                                                                 <div
+                                                                      key={step}
+                                                                      className={`
+                                                                           relative h-full rounded-md cursor-pointer transition-all duration-75 border-2 z-10
+                                                                           ${row.color || 'bg-gray-200'} border-black shadow-[2px_2px_0px_rgba(0,0,0,0.2)]
+                                                                           ${isCurrent ? 'ring-4 ring-purple-200' : ''}
+                                                                      `}
+                                                                      style={{
+                                                                           width: `calc(${duration} * 4rem + ${(duration - 1) * 0.25}rem)`, // 4rem = w-16, 0.25rem = gap-1
+                                                                           flexShrink: 0
+                                                                      }}
+                                                                      onClick={(e) => {
+                                                                           e.stopPropagation();
+                                                                           if (ignoreClickRef.current) return;
+                                                                           const newGrid = [...grid];
+                                                                           newGrid[step][rowIndex] = 0;
+                                                                           setGrid(newGrid);
+                                                                      }}
+                                                                      onMouseEnter={() => {
+                                                                           // Handle shortening (drag left back into the note)
+                                                                           if (resizingNote && resizingNote.row === rowIndex && resizingNote.step === step) {
+                                                                                // We are hovering over the note itself while resizing it.
+                                                                                // This logic is tricky because the note covers multiple cells.
+                                                                                // We need to calculate which "sub-cell" we are over.
+                                                                                // But since we are using grid cells for mouse events, this event only fires for the START cell.
+                                                                                // So we can't easily shorten by hovering the start cell unless we make it 1.
+
+                                                                                // Actually, we can rely on the empty slots for expansion.
+                                                                                // For shortening, we need to detect when we hover over the "virtual" cells covered by this note.
+                                                                                // But those are not rendered!
+
+                                                                                // Alternative: Render the covered cells as invisible drop targets?
+                                                                                // Or just use mouse move on the container?
+
+                                                                                // Simplest fix for now: If we hover the start cell, reset to 1?
+                                                                                // No, that's too aggressive.
+                                                                           }
+                                                                      }}
+                                                                 >
+                                                                      {/* Resize Handle */}
+                                                                      <div
+                                                                           className="absolute right-0 top-0 bottom-0 w-6 cursor-e-resize hover:bg-black/10 flex items-center justify-center group/handle"
+                                                                           onClick={(e) => e.stopPropagation()}
+                                                                           onMouseDown={(e) => {
+                                                                                e.stopPropagation();
+                                                                                setResizingNote({ step, row: rowIndex });
+                                                                           }}
+                                                                      >
+                                                                           <div className="w-1 h-4 bg-black/20 rounded-full group-hover/handle:bg-black/40 transition-colors" />
+                                                                      </div>
+                                                                 </div>
+                                                            );
+                                                       } else {
+                                                            // RENDER EMPTY SLOT
+                                                            return (
+                                                                 <div
+                                                                      key={step}
+                                                                      className={`
+                                                                           w-16 h-full rounded-md cursor-pointer transition-all duration-75 border-2
+                                                                           bg-white border-gray-100 hover:border-gray-400
+                                                                           ${currentStep === step ? 'bg-purple-50' : ''}
+                                                                      `}
+                                                                      onClick={() => {
+                                                                           const newGrid = [...grid];
+                                                                           newGrid[step][rowIndex] = 1;
+                                                                           setGrid(newGrid);
+                                                                           playRowSound(rowIndex, audioCtxRef.current?.currentTime || 0);
+                                                                      }}
+                                                                 />
+                                                            );
+                                                       }
                                                   })}
                                              </div>
                                         ))}

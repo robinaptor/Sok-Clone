@@ -260,6 +260,10 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                                         const volume = row.volume ?? 1.0;
                                         if (row.isMuted) return;
 
+                                        // Calculate Note Duration
+                                        const durationInSteps = note.duration || 1;
+                                        const noteDuration = durationInSteps * stepDuration;
+
                                         if (row.type === 'SAMPLE' && row.sampleData) {
                                             fetch(row.sampleData)
                                                 .then(res => res.arrayBuffer())
@@ -270,16 +274,21 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
 
                                                     const gain = ctx.createGain();
                                                     gain.gain.value = volume;
-
                                                     source.connect(gain);
                                                     gain.connect(ctx.destination);
 
+                                                    // Calculate Trim
                                                     const duration = audioBuffer.duration;
                                                     const startOffset = (row.trimStart || 0) * duration;
                                                     const endOffset = (row.trimEnd || 1) * duration;
-                                                    const playDuration = Math.max(0, endOffset - startOffset);
+                                                    const sampleDuration = Math.max(0.001, endOffset - startOffset);
 
-                                                    source.start(nextNoteTime, startOffset, playDuration);
+                                                    // Calculate Playback Rate to stretch sample to note duration
+                                                    const playbackRate = sampleDuration / noteDuration;
+                                                    source.playbackRate.value = playbackRate;
+
+                                                    // Play for the full note duration
+                                                    source.start(nextNoteTime, startOffset, noteDuration);
                                                 })
                                                 .catch(e => console.error("Error playing sample", e));
                                         } else if (row.type === 'SYNTH') {
@@ -357,16 +366,6 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                                                 osc.frequency.value = getFrequency(row.note || 'C4');
                                                 osc.type = 'square';
 
-                                                // Duration Logic
-                                                let noteDuration = 0.2;
-                                                if (row.duration) {
-                                                    const secondsPerBeat = 60.0 / 120; // Assuming 120 BPM for simplicity or pass it
-                                                    if (row.duration === '16n') noteDuration = 0.25 * secondsPerBeat;
-                                                    if (row.duration === '8n') noteDuration = 0.5 * secondsPerBeat;
-                                                    if (row.duration === '4n') noteDuration = 1.0 * secondsPerBeat;
-                                                    if (row.duration === '2n') noteDuration = 2.0 * secondsPerBeat;
-                                                    if (row.duration === '1n') noteDuration = 4.0 * secondsPerBeat;
-                                                }
 
                                                 gain.gain.setValueAtTime(0.1 * volume, nextNoteTime);
                                                 gain.gain.exponentialRampToValueAtTime(0.001, nextNoteTime + noteDuration);
@@ -957,6 +956,10 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                                                         const volume = row.volume ?? 1.0;
                                                         if (row.isMuted) return;
 
+                                                        // Calculate Note Duration
+                                                        const durationInSteps = note.duration || 1;
+                                                        const noteDuration = durationInSteps * stepDuration;
+
                                                         if (row.type === 'SAMPLE' && row.sampleData) {
                                                             fetch(row.sampleData)
                                                                 .then(res => res.arrayBuffer())
@@ -974,7 +977,10 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                                                                     const duration = audioBuffer.duration;
                                                                     const startOffset = (row.trimStart || 0) * duration;
                                                                     const endOffset = (row.trimEnd || 1) * duration;
-                                                                    const playDuration = Math.max(0, endOffset - startOffset);
+                                                                    let playDuration = Math.max(0, endOffset - startOffset);
+
+                                                                    // Apply Note Duration Gating
+                                                                    playDuration = Math.min(playDuration, noteDuration);
 
                                                                     source.start(nextNoteTime, startOffset, playDuration);
                                                                 })
@@ -1053,17 +1059,6 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                                                                 osc.connect(gain);
                                                                 osc.frequency.value = getFrequency(row.note || 'C4');
                                                                 osc.type = 'square';
-
-                                                                // Duration Logic
-                                                                let noteDuration = 0.2;
-                                                                if (row.duration) {
-                                                                    const secondsPerBeat = 60.0 / 120;
-                                                                    if (row.duration === '16n') noteDuration = 0.25 * secondsPerBeat;
-                                                                    if (row.duration === '8n') noteDuration = 0.5 * secondsPerBeat;
-                                                                    if (row.duration === '4n') noteDuration = 1.0 * secondsPerBeat;
-                                                                    if (row.duration === '2n') noteDuration = 2.0 * secondsPerBeat;
-                                                                    if (row.duration === '1n') noteDuration = 4.0 * secondsPerBeat;
-                                                                }
 
                                                                 gain.gain.setValueAtTime(0.1 * volume, nextNoteTime);
                                                                 gain.gain.exponentialRampToValueAtTime(0.001, nextNoteTime + noteDuration);

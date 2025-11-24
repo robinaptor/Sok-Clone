@@ -93,6 +93,10 @@ export const MusicManager: React.FC<MusicManagerProps> = ({ gameData, onUpdateMu
                                              const volume = row.volume ?? 1.0;
                                              if (row.isMuted) return;
 
+                                             // Calculate Note Duration
+                                             const durationInSteps = note.duration || 1;
+                                             const noteDuration = durationInSteps * stepDuration;
+
                                              if (row.type === 'SAMPLE' && row.sampleData) {
                                                   fetch(row.sampleData)
                                                        .then(res => res.arrayBuffer())
@@ -107,12 +111,18 @@ export const MusicManager: React.FC<MusicManagerProps> = ({ gameData, onUpdateMu
                                                             source.connect(gain);
                                                             gain.connect(audioCtx.destination);
 
+                                                            // Calculate Trim
                                                             const duration = audioBuffer.duration;
                                                             const startOffset = (row.trimStart || 0) * duration;
                                                             const endOffset = (row.trimEnd || 1) * duration;
-                                                            const playDuration = Math.max(0, endOffset - startOffset);
+                                                            const sampleDuration = Math.max(0.001, endOffset - startOffset);
 
-                                                            source.start(time, startOffset, playDuration);
+                                                            // Calculate Playback Rate to stretch sample to note duration
+                                                            const playbackRate = sampleDuration / noteDuration;
+                                                            source.playbackRate.value = playbackRate;
+
+                                                            // Play for the full note duration
+                                                            source.start(time, startOffset, noteDuration);
                                                        })
                                                        .catch(e => console.error("Error playing sample", e));
                                              } else if (row.type === 'SYNTH') {
@@ -128,7 +138,7 @@ export const MusicManager: React.FC<MusicManagerProps> = ({ gameData, onUpdateMu
                                                        gain.gain.setValueAtTime(volume, time);
                                                        gain.gain.exponentialRampToValueAtTime(0.01, time + 0.5);
                                                        osc.start(time);
-                                                       osc.stop(time + 0.5);
+                                                       osc.stop(time + noteDuration);
                                                   } else if (row.instrumentPreset === 'SNARE') {
                                                        const noise = audioCtx.createBufferSource();
                                                        const bufferSize = audioCtx.sampleRate;
@@ -154,8 +164,8 @@ export const MusicManager: React.FC<MusicManagerProps> = ({ gameData, onUpdateMu
 
                                                        noise.start(time);
                                                        osc.start(time);
-                                                       noise.stop(time + 0.2);
-                                                       osc.stop(time + 0.2);
+                                                       noise.stop(time + noteDuration);
+                                                       osc.stop(time + noteDuration);
                                                   } else if (row.instrumentPreset === 'HIHAT') {
                                                        const bufferSize = audioCtx.sampleRate;
                                                        const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
@@ -182,25 +192,13 @@ export const MusicManager: React.FC<MusicManagerProps> = ({ gameData, onUpdateMu
                                                        gain.gain.exponentialRampToValueAtTime(0.01, time + 0.05);
 
                                                        noise.start(time);
-                                                       noise.stop(time + 0.05);
+                                                       noise.stop(time + noteDuration);
                                                   } else {
                                                        // DEFAULT SYNTH
                                                        const osc = audioCtx.createOscillator();
                                                        osc.connect(gain);
                                                        osc.frequency.value = getFrequency(row.note || 'C4');
                                                        osc.type = 'square';
-
-                                                       // Duration Logic
-                                                       let noteDuration = 0.2;
-                                                       if (row.duration) {
-                                                            // Approximate tempo 120 for preview if not passed, but usually 120 is standard
-                                                            const secondsPerBeat = 60.0 / 120;
-                                                            if (row.duration === '16n') noteDuration = 0.25 * secondsPerBeat;
-                                                            if (row.duration === '8n') noteDuration = 0.5 * secondsPerBeat;
-                                                            if (row.duration === '4n') noteDuration = 1.0 * secondsPerBeat;
-                                                            if (row.duration === '2n') noteDuration = 2.0 * secondsPerBeat;
-                                                            if (row.duration === '1n') noteDuration = 4.0 * secondsPerBeat;
-                                                       }
 
                                                        gain.gain.setValueAtTime(0.1 * volume, time);
                                                        gain.gain.exponentialRampToValueAtTime(0.001, time + noteDuration);

@@ -209,7 +209,7 @@ export interface MusicTrack {
   name: string;
   data: string; // Base64 or Blob URL
   type: 'UPLOAD' | 'GENERATED';
-  sequence?: { note: number, time: number }[]; // For generated music. 'note' refers to the row index.
+  sequence?: { note: number, time: number, duration?: number }[]; // For generated music. 'note' refers to the row index.
   rows?: MusicRow[]; // Configuration for each row (instrument). If undefined, assumes default chromatic scale.
 }
 
