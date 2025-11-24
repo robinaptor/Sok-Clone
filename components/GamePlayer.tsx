@@ -164,6 +164,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
     // --- MUSIC PLAYBACK ---
     const musicRef = useRef<HTMLAudioElement | null>(null);
     const currentMusicIdRef = useRef<string | null>(null);
+    const audioCtxRef = useRef<AudioContext | null>(null);
 
     useEffect(() => {
         const scene = gameData.scenes.find(s => s.id === currentSceneId);
@@ -175,6 +176,10 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
             if (musicRef.current) {
                 musicRef.current.pause();
                 musicRef.current = null;
+            }
+            if (audioCtxRef.current) { // Stop generated music
+                audioCtxRef.current.close();
+                audioCtxRef.current = null;
             }
 
             currentMusicIdRef.current = musicId || null;
@@ -192,6 +197,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                     console.log("Starting generated music playback for:", track.name, "Sequence Length:", track.sequence?.length);
                     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
                     const ctx = new AudioContextClass();
+                    audioCtxRef.current = ctx;
 
                     // DEBUG STATE
                     const updateDebugInfo = () => {
@@ -232,10 +238,9 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
 
                     let nextNoteTime = ctx.currentTime;
                     let currentStep = 0;
-                    const steps = 16;
+                    const steps = track.steps || 16;
                     let isPlaying = true;
 
-                    // Scheduler function
                     // Scheduler function
                     const getFrequency = (noteName: string) => {
                         const NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -246,155 +251,307 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                         return 440 * Math.pow(2, semitonesFromA4 / 12);
                     };
 
+                    const createReverbImpulse = (duration: number, decay: number, ctx: AudioContext) => {
+                        const rate = ctx.sampleRate;
+                        const length = rate * duration;
+                        const impulse = ctx.createBuffer(2, length, rate);
+                        const left = impulse.getChannelData(0);
+                        const right = impulse.getChannelData(1);
+
+                        for (let i = 0; i < length; i++) {
+                            const n = i;
+                            left[i] = (Math.random() * 2 - 1) * Math.pow(1 - n / length, decay);
+                            right[i] = (Math.random() * 2 - 1) * Math.pow(1 - n / length, decay);
+                        }
+                        return impulse;
+                    };
+
+                    const playRowSound = (rowIndex: number, time: number, durationInSteps: number = 1, noteOverride?: string | string[]) => {
+                        if (!audioCtxRef.current) return;
+                        const ctx = audioCtxRef.current;
+                        const rows = track.rows; // Access rows from the track
+                        if (!rows) return; // Should not happen if track.rows is checked in scheduler
+                        const row = rows[rowIndex];
+
+                        if (row.isMuted) return;
+
+                        const volume = row.volume ?? 1.0;
+
+                        // Calculate duration in seconds
+                        const secondsPerBeat = 60.0 / tempo;
+                        const stepDuration = 0.25 * secondsPerBeat; // 16th note
+                        const noteDuration = durationInSteps * stepDuration;
+
+                        // Normalize noteOverride to array
+                        const notesToPlay = Array.isArray(noteOverride) ? noteOverride : (noteOverride ? [noteOverride] : [row.note || 'C4']);
+
+                        notesToPlay.forEach(noteToPlay => {
+                            // ADSR
+                            const adsr = row.adsr || { attack: 0.01, decay: 0.1, sustain: 0.5, release: 0.1 };
+                            const attack = Math.max(0.001, adsr.attack); // Prevent 0 attack
+                            const decay = Math.max(0.001, adsr.decay);
+                            const sustain = Math.max(0, Math.min(1, adsr.sustain));
+                            const release = Math.max(0.001, adsr.release);
+
+                            // Master Gain for this note
+                            const gain = ctx.createGain();
+                            gain.connect(ctx.destination);
+
+                            // Apply ADSR Envelope
+                            gain.gain.setValueAtTime(0, time);
+                            gain.gain.linearRampToValueAtTime(volume, time + attack);
+                            gain.gain.exponentialRampToValueAtTime(Math.max(0.001, volume * sustain), time + attack + decay);
+                            gain.gain.setValueAtTime(Math.max(0.001, volume * sustain), time + noteDuration);
+                            gain.gain.exponentialRampToValueAtTime(0.001, time + noteDuration + release);
+
+                            // FX Chain
+                            const fxInput = ctx.createGain();
+                            fxInput.connect(gain);
+
+                            // Delay
+                            if (row.fx?.delay) {
+                                const delay = ctx.createDelay();
+                                delay.delayTime.value = 0.3; // 300ms delay
+                                const feedback = ctx.createGain();
+                                feedback.gain.value = 0.4;
+
+                                const delayGain = ctx.createGain();
+                                delayGain.gain.value = 0.5; // Wet mix
+
+                                fxInput.connect(delay);
+                                delay.connect(feedback);
+                                feedback.connect(delay);
+                                delay.connect(delayGain);
+                                delayGain.connect(gain);
+                            }
+
+                            // Reverb
+                            if (row.fx?.reverb) {
+                                const convolver = ctx.createConvolver();
+                                convolver.buffer = createReverbImpulse(2.0, 2.0, ctx); // 2s reverb
+
+                                const reverbGain = ctx.createGain();
+                                reverbGain.gain.value = 0.5; // Wet mix
+
+                                fxInput.connect(convolver);
+                                convolver.connect(reverbGain);
+                                reverbGain.connect(gain);
+                            }
+
+                            if (row.type === 'SAMPLE' && row.sampleData) {
+                                fetch(row.sampleData)
+                                    .then(res => res.arrayBuffer())
+                                    .then(buffer => ctx.decodeAudioData(buffer))
+                                    .then(audioBuffer => {
+                                        const source = ctx.createBufferSource();
+                                        source.buffer = audioBuffer;
+
+                                        source.connect(fxInput);
+
+                                        const duration = audioBuffer.duration;
+                                        const startOffset = (row.trimStart || 0) * duration;
+                                        const endOffset = (row.trimEnd || 1) * duration;
+                                        const sampleDuration = Math.max(0.001, endOffset - startOffset);
+
+                                        // Pitch Shifting Logic for Samples
+                                        let playbackRate = 1.0;
+
+                                        // If noteOverride is present (Melody/Piano Roll), use Pitch Shifting
+                                        if (noteOverride && (Array.isArray(noteOverride) ? noteOverride.length > 0 : true)) {
+                                            // Calculate frequency ratio relative to C4 (Base note for samples)
+                                            const targetFreq = getFrequency(noteToPlay);
+                                            const baseFreq = getFrequency('C4');
+                                            playbackRate = targetFreq / baseFreq;
+                                        } else {
+                                            // No melody note (Main Grid) -> Stretch to fit duration (Varispeed)
+                                            playbackRate = sampleDuration / noteDuration;
+                                        } source.playbackRate.value = playbackRate;
+
+                                        source.start(time, startOffset, noteDuration + release);
+                                    })
+                                    .catch(e => console.error("Error playing sample", e));
+                            } else if (row.type === 'SYNTH') {
+                                if (row.instrumentPreset === 'KICK') {
+                                    // Complex Kick: Body + Click
+                                    const osc = ctx.createOscillator();
+                                    const gain = ctx.createGain();
+                                    osc.connect(gain);
+                                    gain.connect(fxInput);
+
+                                    // Body
+                                    osc.frequency.setValueAtTime(150, time);
+                                    osc.frequency.exponentialRampToValueAtTime(0.01, time + 0.5);
+                                    gain.gain.setValueAtTime(1.0, time);
+                                    gain.gain.exponentialRampToValueAtTime(0.01, time + 0.5);
+
+                                    osc.start(time);
+                                    osc.stop(time + 0.5);
+
+                                    // Click (Transient)
+                                    const clickOsc = ctx.createOscillator();
+                                    const clickGain = ctx.createGain();
+                                    clickOsc.connect(clickGain);
+                                    clickGain.connect(fxInput);
+
+                                    clickOsc.frequency.setValueAtTime(3000, time);
+                                    clickOsc.frequency.exponentialRampToValueAtTime(100, time + 0.02);
+                                    clickGain.gain.setValueAtTime(0.5, time);
+                                    clickGain.gain.exponentialRampToValueAtTime(0.01, time + 0.02);
+
+                                    clickOsc.start(time);
+                                    clickOsc.stop(time + 0.02);
+
+                                } else if (row.instrumentPreset === 'SNARE') {
+                                    // Complex Snare: Noise + Tonal Body
+                                    const noise = ctx.createBufferSource();
+                                    const bufferSize = ctx.sampleRate;
+                                    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+                                    const data = buffer.getChannelData(0);
+                                    for (let i = 0; i < bufferSize; i++) { data[i] = Math.random() * 2 - 1; }
+                                    noise.buffer = buffer;
+
+                                    const noiseFilter = ctx.createBiquadFilter();
+                                    noiseFilter.type = 'highpass';
+                                    noiseFilter.frequency.value = 1000;
+                                    noise.connect(noiseFilter);
+
+                                    const noiseGain = ctx.createGain();
+                                    noiseFilter.connect(noiseGain);
+                                    noiseGain.connect(fxInput);
+
+                                    // Tonal Body
+                                    const osc = ctx.createOscillator();
+                                    const oscGain = ctx.createGain();
+                                    osc.type = 'triangle';
+                                    osc.connect(oscGain);
+                                    oscGain.connect(fxInput);
+
+                                    // Envelopes
+                                    noiseGain.gain.setValueAtTime(1, time);
+                                    noiseGain.gain.exponentialRampToValueAtTime(0.01, time + 0.2);
+
+                                    osc.frequency.setValueAtTime(250, time);
+                                    osc.frequency.exponentialRampToValueAtTime(100, time + 0.1);
+                                    oscGain.gain.setValueAtTime(0.5, time);
+                                    oscGain.gain.exponentialRampToValueAtTime(0.01, time + 0.1);
+
+                                    noise.start(time);
+                                    osc.start(time);
+                                    noise.stop(time + 0.2);
+                                    osc.stop(time + 0.2);
+
+                                } else if (row.instrumentPreset === 'HIHAT') {
+                                    // Metallic HiHat: Highpass filtered noise + Bandpass
+                                    const bufferSize = ctx.sampleRate;
+                                    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+                                    const data = buffer.getChannelData(0);
+                                    for (let i = 0; i < bufferSize; i++) { data[i] = Math.random() * 2 - 1; }
+
+                                    const noise = ctx.createBufferSource();
+                                    noise.buffer = buffer;
+
+                                    // Bandpass for metallic ring
+                                    const bandpass = ctx.createBiquadFilter();
+                                    bandpass.type = 'bandpass';
+                                    bandpass.frequency.value = 10000;
+                                    bandpass.Q.value = 1;
+
+                                    // Highpass for crispness
+                                    const highpass = ctx.createBiquadFilter();
+                                    highpass.type = 'highpass';
+                                    highpass.frequency.value = 7000;
+
+                                    const gain = ctx.createGain();
+
+                                    noise.connect(bandpass);
+                                    bandpass.connect(highpass);
+                                    highpass.connect(gain);
+                                    gain.connect(fxInput);
+
+                                    gain.gain.setValueAtTime(0.6, time);
+                                    gain.gain.exponentialRampToValueAtTime(0.01, time + 0.05);
+
+                                    noise.start(time);
+                                    noise.stop(time + 0.05);
+                                } else if (row.instrumentPreset === 'GUITAR') {
+                                    // Guitar Pluck Synthesis
+                                    const osc = ctx.createOscillator();
+                                    osc.connect(fxInput);
+                                    osc.frequency.value = getFrequency(noteToPlay);
+                                    osc.type = 'sawtooth'; // Sawtooth rich in harmonics
+
+                                    // Lowpass Filter for "pluck" damping
+                                    const filter = ctx.createBiquadFilter();
+                                    filter.type = 'lowpass';
+                                    filter.frequency.setValueAtTime(3000, time);
+                                    filter.frequency.exponentialRampToValueAtTime(500, time + 0.2); // Filter closes quickly
+
+                                    osc.disconnect();
+                                    osc.connect(filter);
+                                    filter.connect(fxInput);
+
+                                    osc.start(time);
+                                    osc.stop(time + noteDuration + release);
+                                } else if (row.instrumentPreset === 'PIANO') {
+                                    // Basic Piano Synthesis (Sine + Harmonics)
+                                    const osc = ctx.createOscillator();
+                                    osc.connect(fxInput);
+                                    osc.frequency.value = getFrequency(noteToPlay);
+                                    osc.type = 'triangle'; // Triangle is softer than square/saw
+
+                                    osc.start(time);
+                                    osc.stop(time + noteDuration + release);
+                                } else {
+                                    // Default Synth
+                                    const osc = ctx.createOscillator();
+                                    osc.connect(fxInput);
+                                    osc.frequency.value = getFrequency(noteToPlay);
+                                    osc.type = row.waveform || 'square';
+                                    osc.start(time);
+                                    osc.stop(time + noteDuration + release);
+                                }
+                            }
+                        });
+                    };
                     const scheduler = () => {
                         if (!isPlaying) return;
 
                         while (nextNoteTime < ctx.currentTime + scheduleAheadTime) {
                             // Schedule notes for current step
-                            const notesInStep = track.sequence!.filter(n => n.time === currentStep);
-                            notesInStep.forEach(note => {
-                                // Check for Custom Rows
-                                if (track.rows) {
-                                    const row = track.rows[note.note];
-                                    if (row) {
-                                        const volume = row.volume ?? 1.0;
-                                        if (row.isMuted) return;
-
-                                        // Calculate Note Duration
-                                        const durationInSteps = note.duration || 1;
-                                        const noteDuration = durationInSteps * stepDuration;
-
-                                        if (row.type === 'SAMPLE' && row.sampleData) {
-                                            fetch(row.sampleData)
-                                                .then(res => res.arrayBuffer())
-                                                .then(buffer => ctx.decodeAudioData(buffer))
-                                                .then(audioBuffer => {
-                                                    const source = ctx.createBufferSource();
-                                                    source.buffer = audioBuffer;
-
-                                                    const gain = ctx.createGain();
-                                                    gain.gain.value = volume;
-                                                    source.connect(gain);
-                                                    gain.connect(ctx.destination);
-
-                                                    // Calculate Trim
-                                                    const duration = audioBuffer.duration;
-                                                    const startOffset = (row.trimStart || 0) * duration;
-                                                    const endOffset = (row.trimEnd || 1) * duration;
-                                                    const sampleDuration = Math.max(0.001, endOffset - startOffset);
-
-                                                    // Calculate Playback Rate to stretch sample to note duration
-                                                    const playbackRate = sampleDuration / noteDuration;
-                                                    source.playbackRate.value = playbackRate;
-
-                                                    // Play for the full note duration
-                                                    source.start(nextNoteTime, startOffset, noteDuration);
-                                                })
-                                                .catch(e => console.error("Error playing sample", e));
-                                        } else if (row.type === 'SYNTH') {
-                                            const gain = ctx.createGain();
-                                            gain.connect(ctx.destination);
-                                            gain.gain.setValueAtTime(volume, nextNoteTime);
-
-                                            if (row.instrumentPreset === 'KICK') {
-                                                const osc = ctx.createOscillator();
-                                                osc.connect(gain);
-                                                osc.frequency.setValueAtTime(150, nextNoteTime);
-                                                osc.frequency.exponentialRampToValueAtTime(0.01, nextNoteTime + 0.5);
-                                                gain.gain.setValueAtTime(volume, nextNoteTime);
-                                                gain.gain.exponentialRampToValueAtTime(0.01, nextNoteTime + 0.5);
-                                                osc.start(nextNoteTime);
-                                                osc.stop(nextNoteTime + 0.5);
-                                            } else if (row.instrumentPreset === 'SNARE') {
-                                                const noise = ctx.createBufferSource();
-                                                const bufferSize = ctx.sampleRate;
-                                                const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-                                                const data = buffer.getChannelData(0);
-                                                for (let i = 0; i < bufferSize; i++) {
-                                                    data[i] = Math.random() * 2 - 1;
-                                                }
-                                                noise.buffer = buffer;
-
-                                                const noiseFilter = ctx.createBiquadFilter();
-                                                noiseFilter.type = 'highpass';
-                                                noiseFilter.frequency.value = 1000;
-                                                noise.connect(noiseFilter);
-                                                noiseFilter.connect(gain);
-
-                                                const osc = ctx.createOscillator();
-                                                osc.type = 'triangle';
-                                                osc.connect(gain);
-
-                                                gain.gain.setValueAtTime(volume, nextNoteTime);
-                                                gain.gain.exponentialRampToValueAtTime(0.01, nextNoteTime + 0.2);
-
-                                                noise.start(nextNoteTime);
-                                                osc.start(nextNoteTime);
-                                                noise.stop(nextNoteTime + 0.2);
-                                                osc.stop(nextNoteTime + 0.2);
-                                            } else if (row.instrumentPreset === 'HIHAT') {
-                                                const bufferSize = ctx.sampleRate;
-                                                const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-                                                const data = buffer.getChannelData(0);
-                                                for (let i = 0; i < bufferSize; i++) {
-                                                    data[i] = Math.random() * 2 - 1;
-                                                }
-                                                const noise = ctx.createBufferSource();
-                                                noise.buffer = buffer;
-
-                                                const bandpass = ctx.createBiquadFilter();
-                                                bandpass.type = 'bandpass';
-                                                bandpass.frequency.value = 10000;
-
-                                                const highpass = ctx.createBiquadFilter();
-                                                highpass.type = 'highpass';
-                                                highpass.frequency.value = 7000;
-
-                                                noise.connect(bandpass);
-                                                bandpass.connect(highpass);
-                                                highpass.connect(gain);
-
-                                                gain.gain.setValueAtTime(volume * 0.6, nextNoteTime);
-                                                gain.gain.exponentialRampToValueAtTime(0.01, nextNoteTime + 0.05);
-
-                                                noise.start(nextNoteTime);
-                                                noise.stop(nextNoteTime + 0.05);
-                                            } else {
-                                                // DEFAULT SYNTH
-                                                const osc = ctx.createOscillator();
-                                                osc.connect(gain);
-                                                osc.frequency.value = getFrequency(row.note || 'C4');
-                                                osc.type = 'square';
-
-
-                                                gain.gain.setValueAtTime(0.1 * volume, nextNoteTime);
-                                                gain.gain.exponentialRampToValueAtTime(0.001, nextNoteTime + noteDuration);
-
-                                                osc.start(nextNoteTime);
-                                                osc.stop(nextNoteTime + noteDuration);
+                            if (track && track.sequence) {
+                                const notesInStep = track.sequence.filter(n => n.time === currentStep);
+                                notesInStep.forEach(note => {
+                                    if (track.rows) {
+                                        const rowIndex = note.note; // `note.note` is the index of the row
+                                        const row = track.rows[rowIndex];
+                                        if (row) {
+                                            const melodyNotes = row.notes?.[currentStep];
+                                            const duration = note.duration || 1;
+                                            if (duration > 0) {
+                                                playRowSound(rowIndex, nextNoteTime, duration, melodyNotes);
                                             }
                                         }
+                                    } else {
+                                        // LEGACY PLAYBACK (Fallback if no rows)
+                                        const osc = ctx.createOscillator();
+                                        const gain = ctx.createGain();
+                                        osc.connect(gain);
+                                        gain.connect(ctx.destination);
+
+                                        // Frequency calculation
+                                        const baseFreq = 261.63; // C4
+                                        const freq = baseFreq * Math.pow(2, note.note / 12);
+                                        osc.frequency.value = freq;
+                                        osc.type = 'square';
+
+                                        gain.gain.setValueAtTime(0.2, nextNoteTime);
+                                        gain.gain.linearRampToValueAtTime(0.001, nextNoteTime + 0.2);
+
+                                        osc.start(nextNoteTime);
+                                        osc.stop(nextNoteTime + 0.2);
                                     }
-                                } else {
-                                    // LEGACY PLAYBACK
-                                    const osc = ctx.createOscillator();
-                                    const gain = ctx.createGain();
-                                    osc.connect(gain);
-                                    gain.connect(ctx.destination);
-
-                                    // Frequency calculation
-                                    const baseFreq = 261.63; // C4
-                                    const freq = baseFreq * Math.pow(2, note.note / 12);
-                                    osc.frequency.value = freq;
-                                    osc.type = 'square';
-
-                                    gain.gain.setValueAtTime(0.2, nextNoteTime);
-                                    gain.gain.linearRampToValueAtTime(0.001, nextNoteTime + 0.2);
-
-                                    osc.start(nextNoteTime);
-                                    osc.stop(nextNoteTime + 0.2);
-                                }
-                            });
+                                });
+                            }
 
                             // Advance step
                             nextNoteTime += stepDuration;
@@ -408,8 +565,9 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                     };
 
                     scheduler();
+
                     // Store context in ref to close it later
-                    (musicRef as any).current = {
+                    const controls = {
                         pause: () => {
                             isPlaying = false;
                             document.removeEventListener('click', resumeOnInteraction);
@@ -419,11 +577,13 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                         },
                         play: () => { }
                     };
+                    (musicRef as any).current = controls;
                 }
             }
         }
     }, [currentSceneId, gameData.scenes, gameData.music]);
 
+    // Cleanup on unmount
     // Cleanup on unmount
     useEffect(() => {
         return () => {
@@ -923,7 +1083,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                                     };
                                     resumeContext();
 
-                                    const tempo = 120;
+                                    const tempo = track.tempo || 120;
                                     const secondsPerBeat = 60.0 / tempo;
                                     const stepDuration = 0.25 * secondsPerBeat;
                                     const lookahead = 25.0;
@@ -969,7 +1129,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                                                                     source.buffer = audioBuffer;
 
                                                                     const gain = ctx.createGain();
-                                                                    gain.gain.value = volume;
+                                                                    gain.gain.value = volume * 0.5; // Reduce gain to prevent clipping with polyphony
 
                                                                     source.connect(gain);
                                                                     gain.connect(ctx.destination);
@@ -1060,7 +1220,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                                                                 osc.frequency.value = getFrequency(row.note || 'C4');
                                                                 osc.type = 'square';
 
-                                                                gain.gain.setValueAtTime(0.1 * volume, nextNoteTime);
+                                                                gain.gain.setValueAtTime(0.05 * volume, nextNoteTime);
                                                                 gain.gain.exponentialRampToValueAtTime(0.001, nextNoteTime + noteDuration);
 
                                                                 osc.start(nextNoteTime);
@@ -1918,7 +2078,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                         const invertMatches = rules.filter(r =>
                             r.trigger === RuleTrigger.COLLISION && r.subjectId === movingObj.actorId && r.objectId === other.actorId && r.invert
                         );
-
+     
                         for (const r of invertMatches) {
                             if (!continuousCollisions[r.id]) {
                                 continuousCollisions[r.id] = new Set();
@@ -1948,7 +2108,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                             );
                             hitRules.forEach(r => triggerRule(r, other.id, movingObj.id));
                         }
-
+     
                         // When B (projectile) hits A
                         if (otherIsProjectile) {
                             const hitRules = rules.filter(r =>

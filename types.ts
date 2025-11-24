@@ -189,28 +189,34 @@ export interface MusicRow {
   name: string;
   type: 'SYNTH' | 'SAMPLE';
   color?: string;
+
   // Synth specific
-  note?: string; // e.g. "C4"
+  note?: string; // Base note for the row (e.g. "C4")
+  notes?: Record<number, string[]>; // Polyphony: Step index -> Array of notes
+  instrumentPreset?: 'DEFAULT' | 'KICK' | 'SNARE' | 'HIHAT' | 'BASS' | 'GUITAR' | 'PIANO';
+  waveform?: 'sawtooth' | 'square' | 'sine' | 'triangle';
+  adsr?: { attack: number, decay: number, sustain: number, release: number };
+  fx?: { delay?: boolean, reverb?: boolean };
+
   // Sample specific
   sampleData?: string; // Base64
+  trimStart?: number; // 0-1
+  trimEnd?: number; // 0-1
+
   // Mixer controls
   volume?: number; // 0 to 1
   isMuted?: boolean;
-
-  // Advanced Settings
-  trimStart?: number; // 0 to 1 (Percentage of sample to skip)
-  trimEnd?: number;   // 0 to 1 (Percentage of sample to cut off)
-  duration?: string;  // '16n', '8n', '4n', '2n', '1n'
-  instrumentPreset?: 'KICK' | 'SNARE' | 'HIHAT' | 'BASS' | 'DEFAULT';
 }
 
 export interface MusicTrack {
   id: string;
   name: string;
-  data: string; // Base64 or Blob URL
+  data?: string; // Base64 or Blob URL (Legacy/Fallback)
   type: 'UPLOAD' | 'GENERATED';
   sequence?: { note: number, time: number, duration?: number }[]; // For generated music. 'note' refers to the row index.
   rows?: MusicRow[]; // Configuration for each row (instrument). If undefined, assumes default chromatic scale.
+  steps?: number; // Number of steps in the sequence (default 16)
+  tempo?: number; // BPM (default 120)
 }
 
 export interface Scene {
