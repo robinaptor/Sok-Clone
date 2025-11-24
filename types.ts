@@ -196,6 +196,12 @@ export interface MusicRow {
   // Mixer controls
   volume?: number; // 0 to 1
   isMuted?: boolean;
+
+  // Advanced Settings
+  trimStart?: number; // 0 to 1 (Percentage of sample to skip)
+  trimEnd?: number;   // 0 to 1 (Percentage of sample to cut off)
+  duration?: string;  // '16n', '8n', '4n', '2n', '1n'
+  instrumentPreset?: 'KICK' | 'SNARE' | 'HIHAT' | 'BASS' | 'DEFAULT';
 }
 
 export interface MusicTrack {

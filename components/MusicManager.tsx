@@ -87,26 +87,126 @@ export const MusicManager: React.FC<MusicManagerProps> = ({ gameData, onUpdateMu
                                    if (track.rows) {
                                         const row = track.rows[note.note];
                                         if (row) {
-                                             if (!row.isMuted) {
-                                                  const volume = row.volume ?? 1.0;
-                                                  if (row.type === 'SAMPLE' && row.sampleData) {
-                                                       const sound = new Audio(row.sampleData);
-                                                       sound.volume = volume;
-                                                       sound.play().catch(e => console.error("Error playing sample", e));
-                                                  } else if (row.type === 'SYNTH' && row.note) {
-                                                       const osc = ctx.createOscillator();
-                                                       const gain = ctx.createGain();
-                                                       osc.connect(gain);
-                                                       gain.connect(ctx.destination);
+                                             const audioCtx = ctx; // Alias for clarity
+                                             const time = nextNoteTime; // Alias for clarity
 
-                                                       osc.frequency.value = getFrequency(row.note);
+                                             const volume = row.volume ?? 1.0;
+                                             if (row.isMuted) return;
+
+                                             if (row.type === 'SAMPLE' && row.sampleData) {
+                                                  fetch(row.sampleData)
+                                                       .then(res => res.arrayBuffer())
+                                                       .then(buffer => audioCtx.decodeAudioData(buffer))
+                                                       .then(audioBuffer => {
+                                                            const source = audioCtx.createBufferSource();
+                                                            source.buffer = audioBuffer;
+
+                                                            const gain = audioCtx.createGain();
+                                                            gain.gain.value = volume;
+
+                                                            source.connect(gain);
+                                                            gain.connect(audioCtx.destination);
+
+                                                            const duration = audioBuffer.duration;
+                                                            const startOffset = (row.trimStart || 0) * duration;
+                                                            const endOffset = (row.trimEnd || 1) * duration;
+                                                            const playDuration = Math.max(0, endOffset - startOffset);
+
+                                                            source.start(time, startOffset, playDuration);
+                                                       })
+                                                       .catch(e => console.error("Error playing sample", e));
+                                             } else if (row.type === 'SYNTH') {
+                                                  const gain = audioCtx.createGain();
+                                                  gain.connect(audioCtx.destination);
+                                                  gain.gain.setValueAtTime(volume, time);
+
+                                                  if (row.instrumentPreset === 'KICK') {
+                                                       const osc = audioCtx.createOscillator();
+                                                       osc.connect(gain);
+                                                       osc.frequency.setValueAtTime(150, time);
+                                                       osc.frequency.exponentialRampToValueAtTime(0.01, time + 0.5);
+                                                       gain.gain.setValueAtTime(volume, time);
+                                                       gain.gain.exponentialRampToValueAtTime(0.01, time + 0.5);
+                                                       osc.start(time);
+                                                       osc.stop(time + 0.5);
+                                                  } else if (row.instrumentPreset === 'SNARE') {
+                                                       const noise = audioCtx.createBufferSource();
+                                                       const bufferSize = audioCtx.sampleRate;
+                                                       const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+                                                       const data = buffer.getChannelData(0);
+                                                       for (let i = 0; i < bufferSize; i++) {
+                                                            data[i] = Math.random() * 2 - 1;
+                                                       }
+                                                       noise.buffer = buffer;
+
+                                                       const noiseFilter = audioCtx.createBiquadFilter();
+                                                       noiseFilter.type = 'highpass';
+                                                       noiseFilter.frequency.value = 1000;
+                                                       noise.connect(noiseFilter);
+                                                       noiseFilter.connect(gain);
+
+                                                       const osc = audioCtx.createOscillator();
+                                                       osc.type = 'triangle';
+                                                       osc.connect(gain);
+
+                                                       gain.gain.setValueAtTime(volume, time);
+                                                       gain.gain.exponentialRampToValueAtTime(0.01, time + 0.2);
+
+                                                       noise.start(time);
+                                                       osc.start(time);
+                                                       noise.stop(time + 0.2);
+                                                       osc.stop(time + 0.2);
+                                                  } else if (row.instrumentPreset === 'HIHAT') {
+                                                       const bufferSize = audioCtx.sampleRate;
+                                                       const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+                                                       const data = buffer.getChannelData(0);
+                                                       for (let i = 0; i < bufferSize; i++) {
+                                                            data[i] = Math.random() * 2 - 1;
+                                                       }
+                                                       const noise = audioCtx.createBufferSource();
+                                                       noise.buffer = buffer;
+
+                                                       const bandpass = audioCtx.createBiquadFilter();
+                                                       bandpass.type = 'bandpass';
+                                                       bandpass.frequency.value = 10000;
+
+                                                       const highpass = audioCtx.createBiquadFilter();
+                                                       highpass.type = 'highpass';
+                                                       highpass.frequency.value = 7000;
+
+                                                       noise.connect(bandpass);
+                                                       bandpass.connect(highpass);
+                                                       highpass.connect(gain);
+
+                                                       gain.gain.setValueAtTime(volume * 0.6, time);
+                                                       gain.gain.exponentialRampToValueAtTime(0.01, time + 0.05);
+
+                                                       noise.start(time);
+                                                       noise.stop(time + 0.05);
+                                                  } else {
+                                                       // DEFAULT SYNTH
+                                                       const osc = audioCtx.createOscillator();
+                                                       osc.connect(gain);
+                                                       osc.frequency.value = getFrequency(row.note || 'C4');
                                                        osc.type = 'square';
 
-                                                       gain.gain.setValueAtTime(0.1 * volume, nextNoteTime);
-                                                       gain.gain.linearRampToValueAtTime(0.001, nextNoteTime + 0.2);
+                                                       // Duration Logic
+                                                       let noteDuration = 0.2;
+                                                       if (row.duration) {
+                                                            // Approximate tempo 120 for preview if not passed, but usually 120 is standard
+                                                            const secondsPerBeat = 60.0 / 120;
+                                                            if (row.duration === '16n') noteDuration = 0.25 * secondsPerBeat;
+                                                            if (row.duration === '8n') noteDuration = 0.5 * secondsPerBeat;
+                                                            if (row.duration === '4n') noteDuration = 1.0 * secondsPerBeat;
+                                                            if (row.duration === '2n') noteDuration = 2.0 * secondsPerBeat;
+                                                            if (row.duration === '1n') noteDuration = 4.0 * secondsPerBeat;
+                                                       }
 
-                                                       osc.start(nextNoteTime);
-                                                       osc.stop(nextNoteTime + 0.2);
+                                                       gain.gain.setValueAtTime(0.1 * volume, time);
+                                                       gain.gain.exponentialRampToValueAtTime(0.001, time + noteDuration);
+
+                                                       osc.start(time);
+                                                       osc.stop(time + noteDuration);
                                                   }
                                              }
                                         }

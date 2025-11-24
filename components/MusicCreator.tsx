@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Play, Square, Save, Trash2, Plus, Music, Mic, Settings, Volume2 } from 'lucide-react';
+import { X, Play, Square, Save, Trash2, Plus, Music, Mic, Settings, Volume2, Scissors, Clock } from 'lucide-react';
 import { MusicTrack, MusicRow } from '../types';
 
 interface MusicCreatorProps {
@@ -15,10 +15,10 @@ const STEPS = 16;
 const generateDefaultRows = (): MusicRow[] => {
      const rows: MusicRow[] = [];
      // Default Kit - Pastel Colors
-     rows.push({ id: 'kick', name: 'KICK', type: 'SYNTH', note: 'C4', color: 'bg-red-200', volume: 1.0, isMuted: false });
-     rows.push({ id: 'snare', name: 'SNARE', type: 'SYNTH', note: 'D4', color: 'bg-blue-200', volume: 1.0, isMuted: false });
-     rows.push({ id: 'hihat', name: 'HIHAT', type: 'SYNTH', note: 'F#4', color: 'bg-yellow-200', volume: 0.8, isMuted: false });
-     rows.push({ id: 'bass', name: 'BASS', type: 'SYNTH', note: 'A4', color: 'bg-purple-200', volume: 1.0, isMuted: false });
+     rows.push({ id: 'kick', name: 'KICK', type: 'SYNTH', note: 'C4', color: 'bg-red-200', volume: 1.0, isMuted: false, instrumentPreset: 'KICK' });
+     rows.push({ id: 'snare', name: 'SNARE', type: 'SYNTH', note: 'D4', color: 'bg-blue-200', volume: 1.0, isMuted: false, instrumentPreset: 'SNARE' });
+     rows.push({ id: 'hihat', name: 'HIHAT', type: 'SYNTH', note: 'F#4', color: 'bg-yellow-200', volume: 0.8, isMuted: false, instrumentPreset: 'HIHAT' });
+     rows.push({ id: 'bass', name: 'BASS', type: 'SYNTH', note: 'A4', color: 'bg-purple-200', volume: 1.0, isMuted: false, instrumentPreset: 'BASS' });
      return rows;
 };
 
@@ -58,6 +58,47 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
      const nextNoteTimeRef = useRef(0);
      const timerIDRef = useRef<number | null>(null);
      const stepRef = useRef(0);
+     const waveformCanvasRef = useRef<HTMLCanvasElement>(null);
+
+     useEffect(() => {
+          const row = rows.find(r => r.id === editingRowId);
+          if (row?.type === 'SAMPLE' && row.sampleData && waveformCanvasRef.current) {
+               const canvas = waveformCanvasRef.current;
+               const ctx = canvas.getContext('2d');
+               if (!ctx) return;
+
+               fetch(row.sampleData)
+                    .then(res => res.arrayBuffer())
+                    .then(buffer => new AudioContext().decodeAudioData(buffer))
+                    .then(audioBuffer => {
+                         const data = audioBuffer.getChannelData(0);
+                         const step = Math.ceil(data.length / canvas.width);
+                         const amp = canvas.height / 2;
+
+                         ctx.clearRect(0, 0, canvas.width, canvas.height);
+                         ctx.fillStyle = '#f3f4f6';
+                         ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                         ctx.beginPath();
+                         ctx.strokeStyle = '#000000';
+                         ctx.lineWidth = 1;
+
+                         for (let i = 0; i < canvas.width; i++) {
+                              let min = 1.0;
+                              let max = -1.0;
+                              for (let j = 0; j < step; j++) {
+                                   const datum = data[(i * step) + j];
+                                   if (datum < min) min = datum;
+                                   if (datum > max) max = datum;
+                              }
+                              ctx.moveTo(i, (1 + min) * amp);
+                              ctx.lineTo(i, (1 + max) * amp);
+                         }
+                         ctx.stroke();
+                    })
+                    .catch(e => console.error("Error decoding audio for waveform", e));
+          }
+     }, [editingRowId, rows]);
 
      useEffect(() => {
           audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -90,6 +131,7 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
 
      const playRowSound = (rowIndex: number, time: number) => {
           if (!audioCtxRef.current) return;
+          const ctx = audioCtxRef.current;
           const row = rows[rowIndex];
 
           // Mute/Solo Logic
@@ -99,24 +141,134 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
           const volume = row.volume ?? 1.0;
 
           if (row.type === 'SAMPLE' && row.sampleData) {
-               const sound = new Audio(row.sampleData);
-               sound.volume = volume;
-               sound.play().catch(e => console.error("Error playing sample", e));
-          } else if (row.type === 'SYNTH' && row.note) {
-               const osc = audioCtxRef.current.createOscillator();
-               const gain = audioCtxRef.current.createGain();
+               fetch(row.sampleData)
+                    .then(res => res.arrayBuffer())
+                    .then(buffer => ctx.decodeAudioData(buffer))
+                    .then(audioBuffer => {
+                         const source = ctx.createBufferSource();
+                         source.buffer = audioBuffer;
 
-               osc.connect(gain);
-               gain.connect(audioCtxRef.current.destination);
+                         const gain = ctx.createGain();
+                         gain.gain.value = volume;
 
-               osc.frequency.value = getFrequency(row.note);
-               osc.type = 'square';
+                         source.connect(gain);
+                         gain.connect(ctx.destination);
 
-               gain.gain.setValueAtTime(0.1 * volume, time);
-               gain.gain.exponentialRampToValueAtTime(0.001, time + 0.2);
+                         // Calculate Trim
+                         const duration = audioBuffer.duration;
+                         const startOffset = (row.trimStart || 0) * duration;
+                         const endOffset = (row.trimEnd || 1) * duration;
+                         let playDuration = Math.max(0, endOffset - startOffset);
 
-               osc.start(time);
-               osc.stop(time + 0.2);
+                         // Apply Note Duration Gating
+                         if (row.duration) {
+                              const secondsPerBeat = 60.0 / tempo;
+                              let noteDuration = 0.2;
+                              if (row.duration === '16n') noteDuration = 0.25 * secondsPerBeat;
+                              if (row.duration === '8n') noteDuration = 0.5 * secondsPerBeat;
+                              if (row.duration === '4n') noteDuration = 1.0 * secondsPerBeat;
+                              if (row.duration === '2n') noteDuration = 2.0 * secondsPerBeat;
+                              if (row.duration === '1n') noteDuration = 4.0 * secondsPerBeat;
+
+                              playDuration = Math.min(playDuration, noteDuration);
+                         }
+
+                         source.start(time, startOffset, playDuration);
+                    })
+                    .catch(e => console.error("Error playing sample", e));
+
+          } else if (row.type === 'SYNTH') {
+               const gain = ctx.createGain();
+               gain.connect(ctx.destination);
+               gain.gain.setValueAtTime(volume, time);
+
+               if (row.instrumentPreset === 'KICK') {
+                    const osc = ctx.createOscillator();
+                    osc.connect(gain);
+                    osc.frequency.setValueAtTime(150, time);
+                    osc.frequency.exponentialRampToValueAtTime(0.01, time + 0.5);
+                    gain.gain.setValueAtTime(volume, time);
+                    gain.gain.exponentialRampToValueAtTime(0.01, time + 0.5);
+                    osc.start(time);
+                    osc.stop(time + 0.5);
+               } else if (row.instrumentPreset === 'SNARE') {
+                    const noise = ctx.createBufferSource();
+                    const bufferSize = ctx.sampleRate;
+                    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+                    const data = buffer.getChannelData(0);
+                    for (let i = 0; i < bufferSize; i++) {
+                         data[i] = Math.random() * 2 - 1;
+                    }
+                    noise.buffer = buffer;
+
+                    const noiseFilter = ctx.createBiquadFilter();
+                    noiseFilter.type = 'highpass';
+                    noiseFilter.frequency.value = 1000;
+                    noise.connect(noiseFilter);
+                    noiseFilter.connect(gain);
+
+                    const osc = ctx.createOscillator();
+                    osc.type = 'triangle';
+                    osc.connect(gain);
+
+                    gain.gain.setValueAtTime(volume, time);
+                    gain.gain.exponentialRampToValueAtTime(0.01, time + 0.2);
+
+                    noise.start(time);
+                    osc.start(time);
+                    noise.stop(time + 0.2);
+                    osc.stop(time + 0.2);
+               } else if (row.instrumentPreset === 'HIHAT') {
+                    const bufferSize = ctx.sampleRate;
+                    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+                    const data = buffer.getChannelData(0);
+                    for (let i = 0; i < bufferSize; i++) {
+                         data[i] = Math.random() * 2 - 1;
+                    }
+                    const noise = ctx.createBufferSource();
+                    noise.buffer = buffer;
+
+                    const bandpass = ctx.createBiquadFilter();
+                    bandpass.type = 'bandpass';
+                    bandpass.frequency.value = 10000;
+
+                    const highpass = ctx.createBiquadFilter();
+                    highpass.type = 'highpass';
+                    highpass.frequency.value = 7000;
+
+                    noise.connect(bandpass);
+                    bandpass.connect(highpass);
+                    highpass.connect(gain);
+
+                    gain.gain.setValueAtTime(volume * 0.6, time);
+                    gain.gain.exponentialRampToValueAtTime(0.01, time + 0.05);
+
+                    noise.start(time);
+                    noise.stop(time + 0.05);
+               } else {
+                    // DEFAULT SYNTH (Square Wave)
+                    const osc = ctx.createOscillator();
+                    osc.connect(gain);
+                    osc.frequency.value = getFrequency(row.note || 'C4');
+                    osc.type = 'square';
+
+                    // Duration Logic
+                    let noteDuration = 0.2; // Default 16th note approx
+                    if (row.duration) {
+                         const secondsPerBeat = 60.0 / tempo;
+                         if (row.duration === '16n') noteDuration = 0.25 * secondsPerBeat;
+                         if (row.duration === '8n') noteDuration = 0.5 * secondsPerBeat;
+                         if (row.duration === '4n') noteDuration = 1.0 * secondsPerBeat;
+                         if (row.duration === '2n') noteDuration = 2.0 * secondsPerBeat;
+                         if (row.duration === '1n') noteDuration = 4.0 * secondsPerBeat;
+                    }
+
+                    gain.gain.setValueAtTime(0.1 * volume, time);
+                    gain.gain.exponentialRampToValueAtTime(0.001, time + noteDuration);
+
+                    osc.start(time);
+                    osc.stop(time + noteDuration);
+               }
           }
      };
 
@@ -196,7 +348,7 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
                     reader.onloadend = () => {
                          const base64 = reader.result as string;
                          if (editingRowId) {
-                              setRows(prev => prev.map(r => r.id === editingRowId ? { ...r, sampleData: base64 } : r));
+                              setRows(prev => prev.map(r => r.id === editingRowId ? { ...r, sampleData: base64, trimStart: 0, trimEnd: 1 } : r));
                          }
                     };
                     reader.readAsDataURL(blob);
@@ -226,7 +378,8 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
                note: 'C4',
                color: 'bg-gray-200',
                volume: 1.0,
-               isMuted: false
+               isMuted: false,
+               duration: '16n'
           };
           setRows(prev => [...prev, newRow]);
      };
@@ -413,7 +566,7 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
                     {/* INSTRUMENT EDITOR MODAL */}
                     {editingRow && (
                          <div className="absolute inset-0 bg-black/50 z-50 flex items-center justify-center backdrop-blur-sm">
-                              <div className="sketch-box p-8 w-[500px] flex flex-col gap-6 text-black shadow-[12px_12px_0px_rgba(0,0,0,0.5)]">
+                              <div className="sketch-box p-8 w-[600px] max-h-[90vh] overflow-y-auto flex flex-col gap-6 text-black shadow-[12px_12px_0px_rgba(0,0,0,0.5)]">
                                    <div className="flex justify-between items-center border-b-2 border-black pb-4">
                                         <h3 className="font-bold text-2xl flex items-center gap-2">
                                              <Settings className="text-purple-600" /> Edit Track
@@ -421,25 +574,26 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
                                         <button onClick={() => setEditingRowId(null)} className="hover:text-red-500"><X size={24} /></button>
                                    </div>
 
-                                   <div className="space-y-2">
-                                        <label className="font-bold text-gray-500 text-sm uppercase tracking-wider">Track Name</label>
-                                        <input
-                                             className="w-full bg-white border-2 border-black rounded-lg p-3 font-bold text-lg focus:border-purple-500 outline-none"
-                                             value={editingRow.name}
-                                             onChange={(e) => updateRow(editingRow.id, { name: e.target.value })}
-                                        />
-                                   </div>
-
-                                   <div className="space-y-2">
-                                        <label className="font-bold text-gray-500 text-sm uppercase tracking-wider">Color</label>
-                                        <div className="flex gap-2">
-                                             {['bg-red-200', 'bg-orange-200', 'bg-yellow-200', 'bg-green-200', 'bg-blue-200', 'bg-purple-200', 'bg-pink-200'].map(c => (
-                                                  <button
-                                                       key={c}
-                                                       onClick={() => updateRow(editingRow.id, { color: c })}
-                                                       className={`w-8 h-8 rounded-full border-2 border-black ${c} ${editingRow.color === c ? 'ring-2 ring-black scale-110 shadow-md' : 'opacity-70 hover:opacity-100'}`}
-                                                  />
-                                             ))}
+                                   <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                             <label className="font-bold text-gray-500 text-sm uppercase tracking-wider">Track Name</label>
+                                             <input
+                                                  className="w-full bg-white border-2 border-black rounded-lg p-3 font-bold text-lg focus:border-purple-500 outline-none"
+                                                  value={editingRow.name}
+                                                  onChange={(e) => updateRow(editingRow.id, { name: e.target.value })}
+                                             />
+                                        </div>
+                                        <div className="space-y-2">
+                                             <label className="font-bold text-gray-500 text-sm uppercase tracking-wider">Color</label>
+                                             <div className="flex gap-2">
+                                                  {['bg-red-200', 'bg-orange-200', 'bg-yellow-200', 'bg-green-200', 'bg-blue-200', 'bg-purple-200', 'bg-pink-200'].map(c => (
+                                                       <button
+                                                            key={c}
+                                                            onClick={() => updateRow(editingRow.id, { color: c })}
+                                                            className={`w-8 h-8 rounded-full border-2 border-black ${c} ${editingRow.color === c ? 'ring-2 ring-black scale-110 shadow-md' : 'opacity-70 hover:opacity-100'}`}
+                                                       />
+                                                  ))}
+                                             </div>
                                         </div>
                                    </div>
 
@@ -461,76 +615,167 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
                                         </div>
                                    </div>
 
-                                   {editingRow.type === 'SAMPLE' && (
-                                        <div className="bg-gray-50 p-6 rounded-xl border-2 border-black flex flex-col gap-4 items-center">
-                                             <div className="w-full flex justify-center">
-                                                  <button
-                                                       onMouseDown={startRecording}
-                                                       onMouseUp={stopRecording}
-                                                       onMouseLeave={stopRecording}
-                                                       onTouchStart={startRecording}
-                                                       onTouchEnd={stopRecording}
-                                                       className={`
-                                                            w-32 h-32 rounded-full border-[4px] border-black flex flex-col items-center justify-center gap-2 transition-all shadow-[4px_4px_0px_black]
-                                                            ${isRecording ? 'bg-red-200 scale-95 translate-y-1 shadow-none' : 'bg-white hover:bg-gray-50 hover:scale-105'}
-                                                       `}
-                                                  >
-                                                       {isRecording ? (
-                                                            <>
-                                                                 <div className="w-10 h-10 bg-red-500 rounded-sm animate-pulse" />
-                                                                 <span className="text-xs font-black text-red-900 tracking-widest">REC</span>
-                                                            </>
-                                                       ) : (
-                                                            <>
-                                                                 <Mic size={40} className="text-black" />
-                                                                 <span className="text-xs font-bold text-gray-500">HOLD TO REC</span>
-                                                            </>
-                                                       )}
-                                                  </button>
-                                             </div>
-
-                                             {editingRow.sampleData ? (
-                                                  <div className="flex items-center gap-3 w-full bg-white p-3 rounded-lg border-2 border-black shadow-sm">
-                                                       <button
-                                                            onClick={() => {
-                                                                 const audio = new Audio(editingRow.sampleData);
-                                                                 audio.play();
-                                                            }}
-                                                            className="p-3 bg-green-200 rounded-full hover:bg-green-300 text-black border-2 border-black shadow-[2px_2px_0px_black] active:translate-y-[2px] active:shadow-none transition-all"
-                                                       >
-                                                            <Play size={16} fill="currentColor" />
-                                                       </button>
-                                                       <div className="flex-1">
-                                                            <div className="text-xs font-bold text-gray-500 uppercase">Sample Recorded</div>
-                                                            <div className="text-sm font-bold text-black">{(editingRow.sampleData.length / 1024).toFixed(1)} KB</div>
-                                                       </div>
-                                                       <button
-                                                            onClick={() => updateRow(editingRow.id, { sampleData: undefined })}
-                                                            className="p-2 hover:bg-red-100 rounded-lg text-gray-400 hover:text-red-500 transition-colors"
-                                                       >
-                                                            <Trash2 size={20} />
-                                                       </button>
-                                                  </div>
-                                             ) : (
-                                                  <div className="text-sm text-gray-400 italic">No sample recorded yet</div>
-                                             )}
-                                        </div>
-                                   )}
-
-                                   {editingRow.type === 'SYNTH' && (
+                                   <div className="space-y-4">
+                                        {/* Common Controls for both types */}
                                         <div className="space-y-2">
-                                             <label className="font-bold text-gray-500 text-sm uppercase tracking-wider">Note</label>
+                                             <label className="font-bold text-gray-500 text-sm uppercase tracking-wider flex items-center gap-2">
+                                                  <Clock size={16} /> Duration
+                                             </label>
                                              <select
-                                                  value={editingRow.note}
-                                                  onChange={(e) => updateRow(editingRow.id, { note: e.target.value, name: e.target.value })}
+                                                  value={editingRow.duration || '16n'}
+                                                  onChange={(e) => updateRow(editingRow.id, { duration: e.target.value })}
                                                   className="w-full bg-white border-2 border-black rounded-lg p-3 font-bold text-black focus:border-purple-500 outline-none"
                                              >
-                                                  {NOTES.flatMap(n => OCTAVES.map(o => `${n}${o}`)).reverse().map(note => (
-                                                       <option key={note} value={note}>{note}</option>
-                                                  ))}
+                                                  <option value="16n">Short (1/16)</option>
+                                                  <option value="8n">Medium (1/8)</option>
+                                                  <option value="4n">Long (1/4)</option>
+                                                  <option value="2n">Very Long (1/2)</option>
                                              </select>
                                         </div>
-                                   )}
+
+                                        {editingRow.type === 'SAMPLE' && (
+                                             <div className="bg-gray-50 p-6 rounded-xl border-2 border-black flex flex-col gap-4 items-center">
+                                                  <div className="w-full flex justify-center">
+                                                       <button
+                                                            onMouseDown={startRecording}
+                                                            onMouseUp={stopRecording}
+                                                            onMouseLeave={stopRecording}
+                                                            onTouchStart={startRecording}
+                                                            onTouchEnd={stopRecording}
+                                                            className={`
+                                                                 w-32 h-32 rounded-full border-[4px] border-black flex flex-col items-center justify-center gap-2 transition-all shadow-[4px_4px_0px_black]
+                                                                 ${isRecording ? 'bg-red-200 scale-95 translate-y-1 shadow-none' : 'bg-white hover:bg-gray-50 hover:scale-105'}
+                                                            `}
+                                                       >
+                                                            {isRecording ? (
+                                                                 <>
+                                                                      <div className="w-10 h-10 bg-red-500 rounded-sm animate-pulse" />
+                                                                      <span className="text-xs font-black text-red-900 tracking-widest">REC</span>
+                                                                 </>
+                                                            ) : (
+                                                                 <>
+                                                                      <Mic size={40} className="text-black" />
+                                                                      <span className="text-xs font-bold text-gray-500">HOLD TO REC</span>
+                                                                 </>
+                                                            )}
+                                                       </button>
+                                                  </div>
+
+                                                  {editingRow.sampleData ? (
+                                                       <div className="w-full space-y-4">
+                                                            <div className="flex items-center gap-3 w-full bg-white p-3 rounded-lg border-2 border-black shadow-sm">
+                                                                 <button
+                                                                      onClick={() => {
+                                                                           const audio = new Audio(editingRow.sampleData);
+                                                                           audio.play();
+                                                                      }}
+                                                                      className="p-3 bg-green-200 rounded-full hover:bg-green-300 text-black border-2 border-black shadow-[2px_2px_0px_black] active:translate-y-[2px] active:shadow-none transition-all"
+                                                                 >
+                                                                      <Play size={16} fill="currentColor" />
+                                                                 </button>
+                                                                 <div className="flex-1">
+                                                                      <div className="text-xs font-bold text-gray-500 uppercase">Sample Recorded</div>
+                                                                      <div className="text-sm font-bold text-black">{(editingRow.sampleData.length / 1024).toFixed(1)} KB</div>
+                                                                 </div>
+                                                                 <button
+                                                                      onClick={() => updateRow(editingRow.id, { sampleData: undefined })}
+                                                                      className="p-2 hover:bg-red-100 rounded-lg text-gray-400 hover:text-red-500 transition-colors"
+                                                                 >
+                                                                      <Trash2 size={20} />
+                                                                 </button>
+                                                            </div>
+
+                                                            {/* TRIM CONTROLS */}
+                                                            <div className="bg-white p-4 rounded-lg border-2 border-black space-y-3">
+                                                                 <div className="flex items-center gap-2 font-bold text-sm text-gray-500">
+                                                                      <Scissors size={16} /> TRIM AUDIO
+                                                                 </div>
+
+                                                                 <div className="relative w-full h-24 bg-gray-100 rounded border-2 border-black overflow-hidden select-none">
+                                                                      <canvas
+                                                                           ref={waveformCanvasRef}
+                                                                           width={500}
+                                                                           height={96}
+                                                                           className="w-full h-full"
+                                                                      />
+                                                                      {/* Overlay for Trim Start */}
+                                                                      <div
+                                                                           className="absolute top-0 left-0 h-full bg-black/50 pointer-events-none border-r-2 border-red-500"
+                                                                           style={{ width: `${(editingRow.trimStart || 0) * 100}%` }}
+                                                                      />
+                                                                      {/* Overlay for Trim End */}
+                                                                      <div
+                                                                           className="absolute top-0 right-0 h-full bg-black/50 pointer-events-none border-l-2 border-red-500"
+                                                                           style={{ width: `${(1 - (editingRow.trimEnd || 1)) * 100}%` }}
+                                                                      />
+                                                                 </div>
+
+                                                                 <div className="space-y-4">
+                                                                      <div className="space-y-1">
+                                                                           <div className="flex justify-between text-xs font-bold">
+                                                                                <span>START</span>
+                                                                                <span>{Math.round((editingRow.trimStart || 0) * 100)}%</span>
+                                                                           </div>
+                                                                           <input
+                                                                                type="range" min="0" max="1" step="0.01"
+                                                                                value={editingRow.trimStart || 0}
+                                                                                onChange={(e) => updateRow(editingRow.id, { trimStart: Math.min(parseFloat(e.target.value), (editingRow.trimEnd || 1) - 0.1) })}
+                                                                                className="w-full accent-green-500"
+                                                                           />
+                                                                      </div>
+                                                                      <div className="space-y-1">
+                                                                           <div className="flex justify-between text-xs font-bold">
+                                                                                <span>END</span>
+                                                                                <span>{Math.round((editingRow.trimEnd || 1) * 100)}%</span>
+                                                                           </div>
+                                                                           <input
+                                                                                type="range" min="0" max="1" step="0.01"
+                                                                                value={editingRow.trimEnd || 1}
+                                                                                onChange={(e) => updateRow(editingRow.id, { trimEnd: Math.max(parseFloat(e.target.value), (editingRow.trimStart || 0) + 0.1) })}
+                                                                                className="w-full accent-red-500"
+                                                                           />
+                                                                      </div>
+                                                                 </div>
+                                                            </div>
+                                                       </div>
+                                                  ) : (
+                                                       <div className="text-sm text-gray-400 italic">No sample recorded yet</div>
+                                                  )}
+                                             </div>
+                                        )}
+
+                                        {editingRow.type === 'SYNTH' && (
+                                             <div className="space-y-4">
+                                                  <div className="space-y-2">
+                                                       <label className="font-bold text-gray-500 text-sm uppercase tracking-wider">Note</label>
+                                                       <select
+                                                            value={editingRow.note}
+                                                            onChange={(e) => updateRow(editingRow.id, { note: e.target.value, name: e.target.value, instrumentPreset: 'DEFAULT' })}
+                                                            className="w-full bg-white border-2 border-black rounded-lg p-3 font-bold text-black focus:border-purple-500 outline-none"
+                                                       >
+                                                            {NOTES.flatMap(n => OCTAVES.map(o => `${n}${o}`)).reverse().map(note => (
+                                                                 <option key={note} value={note}>{note}</option>
+                                                            ))}
+                                                       </select>
+                                                  </div>
+
+                                                  <div className="space-y-2">
+                                                       <label className="font-bold text-gray-500 text-sm uppercase tracking-wider">Preset</label>
+                                                       <div className="flex gap-2">
+                                                            {['KICK', 'SNARE', 'HIHAT', 'BASS'].map(preset => (
+                                                                 <button
+                                                                      key={preset}
+                                                                      onClick={() => updateRow(editingRow.id, { instrumentPreset: preset as any, name: preset })}
+                                                                      className={`flex-1 py-2 text-xs font-bold border-2 border-black rounded-lg ${editingRow.instrumentPreset === preset ? 'bg-black text-white' : 'bg-white text-black hover:bg-gray-100'}`}
+                                                                 >
+                                                                      {preset}
+                                                                 </button>
+                                                            ))}
+                                                       </div>
+                                                  </div>
+                                             </div>
+                                        )}
+                                   </div>
 
                                    <div className="pt-6 border-t-2 border-black flex justify-between">
                                         <button
