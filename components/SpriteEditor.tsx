@@ -23,6 +23,10 @@ export const SpriteEditor: React.FC<SpriteEditorProps> = ({ actor, onUpdate, onD
     const [name, setName] = useState(actor.name);
     const [color, setColor] = useState('#000000');
     const [tool, setTool] = useState<'PENCIL' | 'ERASER' | 'FILL' | 'SELECT'>('PENCIL');
+    const [viewMode, setViewMode] = useState<'PAINT' | 'COLLISION'>('PAINT');
+    const [collisionShape, setCollisionShape] = useState<{ type: 'RECT' | 'CIRCLE' | 'POLYGON', points?: { x: number, y: number }[] }>(
+        actor.collisionShape || { type: 'RECT' } // Default to full rect (handled implicitly as null usually, but explicit here for editing)
+    );
 
     // Commit floating layer when tool changes (if not SELECT)
     useEffect(() => {
@@ -181,6 +185,55 @@ export const SpriteEditor: React.FC<SpriteEditorProps> = ({ actor, onUpdate, onD
         }
     }, [selectionPath, isSelectionActive, floatingLayer]);
 
+    // Draw Collision Overlay
+    useEffect(() => {
+        if (viewMode !== 'COLLISION') return;
+        const canvas = selectionCanvasRef.current; // Reuse selection canvas for overlay
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        const dpr = window.devicePixelRatio || 1;
+        // Ensure canvas is clear (it might have selection stuff, but we assume modes are exclusive for overlay)
+        ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+        ctx.imageSmoothingEnabled = false;
+
+        // Draw Collision Shape
+        ctx.strokeStyle = '#ef4444'; // Red
+        ctx.lineWidth = 2;
+        ctx.fillStyle = 'rgba(239, 68, 68, 0.3)';
+
+        if (collisionShape.type === 'POLYGON' && collisionShape.points) {
+            if (collisionShape.points.length > 0) {
+                ctx.beginPath();
+                ctx.moveTo(collisionShape.points[0].x, collisionShape.points[0].y);
+                for (let i = 1; i < collisionShape.points.length; i++) {
+                    ctx.lineTo(collisionShape.points[i].x, collisionShape.points[i].y);
+                }
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+
+                // Draw Points
+                ctx.fillStyle = '#fff';
+                collisionShape.points.forEach(p => {
+                    ctx.fillRect(p.x - 3, p.y - 3, 6, 6);
+                    ctx.strokeRect(p.x - 3, p.y - 3, 6, 6);
+                });
+            }
+        } else {
+            // Default RECT (Full Size)
+            // If it's RECT type but no specific data, it's full size. 
+            // But we want to allow editing? 
+            // For now, let's just support POLYGON creation for "Custom".
+            // If type is RECT, show full box.
+            ctx.strokeRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+            ctx.fillStyle = 'rgba(239, 68, 68, 0.1)';
+            ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+        }
+
+    }, [viewMode, collisionShape]);
+
     // Preview Animation Loop
     useEffect(() => {
         if (!isPlaying) return;
@@ -199,7 +252,7 @@ export const SpriteEditor: React.FC<SpriteEditorProps> = ({ actor, onUpdate, onD
             setFrames(newFrames);
 
             const mainImage = currentFrameIdx === 0 ? newImageData : actor.imageData;
-            onUpdate({ ...actor, name, imageData: mainImage, frames: newFrames });
+            onUpdate({ ...actor, name, imageData: mainImage, frames: newFrames, collisionShape: collisionShape.type === 'POLYGON' ? collisionShape : undefined });
         }
     };
 
@@ -549,6 +602,23 @@ export const SpriteEditor: React.FC<SpriteEditorProps> = ({ actor, onUpdate, onD
     const handleMouseDown = (e: React.MouseEvent) => {
         const { x, y } = getCoordinates(e);
 
+        if (viewMode === 'COLLISION') {
+            // Add point to polygon
+            setCollisionShape(prev => {
+                if (prev.type !== 'POLYGON') {
+                    return { type: 'POLYGON', points: [{ x, y }] };
+                }
+                return { ...prev, points: [...(prev.points || []), { x, y }] };
+            });
+            // Auto-save
+            const newShape = collisionShape.type === 'POLYGON'
+                ? { ...collisionShape, points: [...(collisionShape.points || []), { x, y }] }
+                : { type: 'POLYGON', points: [{ x, y }] };
+
+            onUpdate({ ...actor, collisionShape: newShape as any });
+            return;
+        }
+
         // 1. Handle Floating Layer Interaction
         if (floatingLayer) {
             const handleSize = 10; // Slightly larger hit area
@@ -799,11 +869,48 @@ export const SpriteEditor: React.FC<SpriteEditorProps> = ({ actor, onUpdate, onD
                 <div className="sketch-box px-4 py-2 bg-yellow-50" data-help="Change the name of this actor">
                     <label className="text-xs font-bold text-gray-400">NAME</label>
                     <input
-                        className="text-2xl font-bold bg-transparent border-b-2 border-black/10 focus:border-black outline-none w-full"
+                        type="text"
                         value={name}
-                        onChange={(e) => { setName(e.target.value); onUpdate({ ...actor, name: e.target.value }) }}
+                        onChange={(e) => {
+                            setName(e.target.value);
+                            onUpdate({ ...actor, name: e.target.value });
+                        }}
+                        className="w-full bg-transparent border-b-2 border-black/10 focus:border-black outline-none font-bold text-lg"
                     />
                 </div>
+
+                {/* MODE SWITCHER */}
+                <div className="flex gap-2 p-1 bg-gray-100 rounded-lg">
+                    <button
+                        onClick={() => setViewMode('PAINT')}
+                        className={`flex-1 py-1 rounded-md font-bold text-xs ${viewMode === 'PAINT' ? 'bg-white shadow text-black' : 'text-gray-500'}`}
+                    >
+                        PAINT
+                    </button>
+                    <button
+                        onClick={() => setViewMode('COLLISION')}
+                        className={`flex-1 py-1 rounded-md font-bold text-xs ${viewMode === 'COLLISION' ? 'bg-white shadow text-red-500' : 'text-gray-500'}`}
+                    >
+                        COLLISION
+                    </button>
+                </div>
+
+                {viewMode === 'COLLISION' ? (
+                    <div className="flex flex-col gap-4">
+                        <div className="text-sm text-gray-600">
+                            Click on the canvas to add points to the collision polygon.
+                        </div>
+                        <button
+                            onClick={() => {
+                                setCollisionShape({ type: 'RECT' });
+                                onUpdate({ ...actor, collisionShape: undefined });
+                            }}
+                            className="sketch-btn bg-red-100 text-red-600 text-xs py-2"
+                        >
+                            RESET TO BOX
+                        </button>
+                    </div>
+                ) : null}
 
                 {/* Tools */}
                 <div className="flex flex-col gap-2">

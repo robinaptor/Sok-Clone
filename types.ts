@@ -12,6 +12,16 @@ export interface Actor {
   name: string;
   imageData: string; // Base64 data URL
   frames?: string[]; // Animation frames
+  collisionShape?: {
+    type: 'RECT' | 'CIRCLE' | 'POLYGON';
+    // For RECT
+    width?: number;
+    height?: number;
+    offsetX?: number;
+    offsetY?: number;
+    // For POLYGON
+    points?: { x: number, y: number }[]; // Relative to actor (0,0) is top-left
+  };
 }
 
 export interface Sound {

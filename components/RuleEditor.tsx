@@ -1512,6 +1512,35 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                 ))}
                             </div>
 
+                            <div className="w-full flex flex-col items-center gap-4 mt-8 animate-in slide-in-from-left-4 fade-in duration-200 delay-75">
+                                <h3 className="font-bold text-lg text-red-800 flex items-center gap-2">MODIFIERS <Settings size={20} /></h3>
+                                <div
+                                    draggable="true"
+                                    onDragStart={(e) => { e.dataTransfer.setData("type", "NOT_STICKER"); }}
+                                    className="w-full bg-white border-2 border-red-500 rounded-lg p-2 shadow-md cursor-grab active:cursor-grabbing hover:scale-105 transition-transform flex flex-col items-center gap-1 group"
+                                    data-help="Drag onto a trigger to invert it (NOT)"
+                                >
+                                    <div className="font-bold text-sm text-red-600">NOT</div>
+                                    <div className="w-10 h-10 rounded flex items-center justify-center text-white border border-black shadow-sm bg-red-100">
+                                        <Ban size={24} className="text-red-500" strokeWidth={3} />
+                                    </div>
+                                    <span className="font-bold text-md text-center leading-none">INVERT</span>
+                                </div>
+
+                                <div
+                                    draggable="true"
+                                    onDragStart={(e) => { e.dataTransfer.setData("type", "DICE_STICKER"); }}
+                                    className="w-full bg-white border-2 border-purple-500 rounded-lg p-2 shadow-md cursor-grab active:cursor-grabbing hover:scale-105 transition-transform flex flex-col items-center gap-1 group"
+                                    data-help="Drag onto a trigger to add a % chance"
+                                >
+                                    <div className="font-bold text-sm text-purple-600">CHANCE</div>
+                                    <div className="w-10 h-10 rounded flex items-center justify-center text-white border border-black shadow-sm bg-purple-100">
+                                        <Dices size={24} className="text-purple-500" strokeWidth={3} />
+                                    </div>
+                                    <span className="font-bold text-md text-center leading-none">CHANCE</span>
+                                </div>
+                            </div>
+
                             <div className="w-full flex flex-col items-center gap-4 mt-8 animate-in slide-in-from-left-4 fade-in duration-200 delay-100">
                                 <h3 className="font-bold text-lg text-blue-800 flex items-center gap-2">VARIABLES <Hash size={20} /></h3>
                                 {gameData.variables.map((v) => (

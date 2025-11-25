@@ -1320,7 +1320,7 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
                               <input
                                    type="range"
                                    min="8"
-                                   max="64"
+                                   max="256"
                                    step="8"
                                    value={steps}
                                    onChange={(e) => setSteps(Number(e.target.value))}
@@ -1617,11 +1617,22 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
                                                                                 {(() => {
                                                                                      const secondsPerBeat = 60.0 / tempo;
                                                                                      const stepDuration = 0.25 * secondsPerBeat;
+
+                                                                                     // Calculate Effective Duration based on Trim
+                                                                                     const trimStart = row.trimStart || 0;
+                                                                                     const trimEnd = row.trimEnd || 1;
+                                                                                     const trimDurationRatio = Math.max(0.01, trimEnd - trimStart);
+
+                                                                                     // The original duration in steps (full sample)
+                                                                                     const fullOriginalDuration = originalDuration || clip.durationSteps || 1;
+
+                                                                                     // The duration of the TRIMMED sample in steps
+                                                                                     const effectiveDuration = fullOriginalDuration * trimDurationRatio;
+
                                                                                      const offsetSteps = (clip.offset || 0) / stepDuration;
                                                                                      const totalNeededSteps = offsetSteps + clip.durationSteps;
-                                                                                     // Ensure at least 1 loop, and handle case where originalDuration might be missing or 0 (fallback to durationSteps)
-                                                                                     const safeOriginalDuration = originalDuration || clip.durationSteps || 1;
-                                                                                     const loopCount = Math.ceil(totalNeededSteps / safeOriginalDuration);
+
+                                                                                     const loopCount = Math.ceil(totalNeededSteps / effectiveDuration);
 
                                                                                      return (
                                                                                           <div
@@ -1630,7 +1641,7 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
                                                                                                     top: 0,
                                                                                                     bottom: 0,
                                                                                                     left: `calc(-${offsetSteps} * 4.25rem)`,
-                                                                                                    width: `calc(${loopCount} * ${safeOriginalDuration} * 4.25rem)`,
+                                                                                                    width: `calc(${loopCount} * ${effectiveDuration} * 4.25rem)`,
                                                                                                     display: 'flex'
                                                                                                }}
                                                                                           >
@@ -1639,15 +1650,15 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
                                                                                                          key={i}
                                                                                                          className="h-full relative border-r border-black/10"
                                                                                                          style={{
-                                                                                                              width: `calc(${safeOriginalDuration} * 4.25rem)`,
+                                                                                                              width: `calc(${effectiveDuration} * 4.25rem)`,
                                                                                                               flexShrink: 0
                                                                                                          }}
                                                                                                     >
                                                                                                          {row.sampleData && (
                                                                                                               <WaveformCanvas
                                                                                                                    audioData={row.sampleData}
-                                                                                                                   trimStart={0}
-                                                                                                                   trimEnd={1}
+                                                                                                                   trimStart={trimStart}
+                                                                                                                   trimEnd={trimEnd}
                                                                                                                    color="#166534"
                                                                                                               />
                                                                                                          )}

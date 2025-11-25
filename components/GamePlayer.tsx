@@ -1,7 +1,7 @@
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { GameData, InteractionType, LevelObject, RuleTrigger, RuleEffect, Actor, MusicRow } from '../types';
-import { SCENE_WIDTH, SCENE_HEIGHT, ACTOR_SIZE } from '../constants';
+import { ACTOR_SIZE, SCENE_HEIGHT, SCENE_WIDTH, CANVAS_SIZE } from '../constants';
 import { Trophy, Skull, MousePointer, DoorOpen, Loader2, Play, Volume2, Hash } from 'lucide-react';
 
 interface GamePlayerProps {
@@ -1658,19 +1658,77 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [status, activeSceneId]);
 
+    // --- SAT COLLISION HELPER ---
+    const satCollision = (
+        poly1: { x: number, y: number }[],
+        poly2: { x: number, y: number }[]
+    ) => {
+        const polygons = [poly1, poly2];
+        for (const polygon of polygons) {
+            for (let i = 0; i < polygon.length; i++) {
+                const p1 = polygon[i];
+                const p2 = polygon[(i + 1) % polygon.length];
+                const normal = { x: -(p2.y - p1.y), y: p2.x - p1.x };
+                const len = Math.sqrt(normal.x * normal.x + normal.y * normal.y);
+                if (len === 0) continue;
+                normal.x /= len; normal.y /= len;
+
+                let min1 = Infinity, max1 = -Infinity;
+                for (const p of poly1) {
+                    const dot = p.x * normal.x + p.y * normal.y;
+                    min1 = Math.min(min1, dot);
+                    max1 = Math.max(max1, dot);
+                }
+
+                let min2 = Infinity, max2 = -Infinity;
+                for (const p of poly2) {
+                    const dot = p.x * normal.x + p.y * normal.y;
+                    min2 = Math.min(min2, dot);
+                    max2 = Math.max(max2, dot);
+                }
+
+                if (max1 < min2 || max2 < min1) return false;
+            }
+        }
+        return true;
+    };
+
+    const getCollisionPoly = (obj: { x: number, y: number, scale?: number, actorId?: string }, buffer = 0) => {
+        const actor = obj.actorId ? getActor(obj.actorId) : null;
+        const scale = obj.scale || 1;
+        const size = ACTOR_SIZE * scale;
+        const x = obj.x - buffer;
+        const y = obj.y - buffer;
+        const w = size + buffer * 2;
+        const h = size + buffer * 2;
+
+        if (actor?.collisionShape?.type === 'POLYGON' && actor.collisionShape.points) {
+            // Transform points to world space
+            // Points are in CANVAS_SIZE (128) space, need to scale to ACTOR_SIZE (80) * scale
+            const s = (size / CANVAS_SIZE);
+            return actor.collisionShape.points.map(p => ({
+                x: x + p.x * s,
+                y: y + p.y * s
+            }));
+        }
+
+        // Default Rect
+        return [
+            { x, y },
+            { x: x + w, y },
+            { x: x + w, y: y + h },
+            { x, y: y + h }
+        ];
+    };
+
     const checkCollision = (
-        rect1: { x: number, y: number, scale?: number },
-        rect2: { x: number, y: number, scale?: number },
+        rect1: { x: number, y: number, scale?: number, actorId?: string },
+        rect2: { x: number, y: number, scale?: number, actorId?: string },
         buffer = 0
     ) => {
-        const size1 = ACTOR_SIZE * (rect1.scale || 1);
-        const size2 = ACTOR_SIZE * (rect2.scale || 1);
-        return (
-            rect1.x < rect2.x + size2 + buffer &&
-            rect1.x + size1 + buffer > rect2.x &&
-            rect1.y < rect2.y + size2 + buffer &&
-            rect1.y + size1 + buffer > rect2.y
-        );
+        const poly1 = getCollisionPoly(rect1, buffer);
+        const poly2 = getCollisionPoly(rect2, buffer);
+        return satCollision(poly1, poly2);
     };
 
     // --- GLOBAL COLLISION DETECTION (Physics & Projectiles) ---
@@ -1772,7 +1830,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                 }
             }
         }
-    }, [objects, status]);
+    }, [objects, status, gameData]);
 
     const handleMouseDown = async (e: React.MouseEvent, obj: LevelObject) => {
         if (status !== 'PLAYING') return;
@@ -1847,8 +1905,8 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
         for (const other of objects) {
             if (other.id === draggingId) continue;
             const isTouching = checkCollision(
-                { x: newX, y: newY, scale: movingObj.scale },
-                { x: other.x, y: other.y, scale: other.scale }
+                { x: newX, y: newY, scale: movingObj.scale, actorId: movingObj.actorId },
+                { x: other.x, y: other.y, scale: other.scale, actorId: other.actorId }
             );
             const pairKey = [movingObj.id, other.id].sort().join(':');
 
@@ -1923,7 +1981,9 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                 }
             } else {
                 const isStillClose = checkCollision(
-                    { x: newX, y: newY, scale: movingObj.scale }, { x: other.x, y: other.y, scale: other.scale }, 5
+                    { x: newX, y: newY, scale: movingObj.scale, actorId: movingObj.actorId },
+                    { x: other.x, y: other.y, scale: other.scale, actorId: other.actorId },
+                    5
                 );
                 if (!isStillClose && activeCollisions.current.has(pairKey)) {
                     activeCollisions.current.delete(pairKey);
