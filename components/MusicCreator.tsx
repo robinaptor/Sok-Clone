@@ -1612,37 +1612,50 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
                                                                                 });
                                                                            }}
                                                                       >
-                                                                           {/* Waveform Visualization (Windowed / Cropped) */}
+                                                                           {/* Waveform Visualization (Windowed / Cropped & Looped) */}
                                                                            <div className="absolute inset-0 opacity-50 pointer-events-none overflow-hidden rounded-lg">
-                                                                                <div
-                                                                                     style={{
-                                                                                          position: 'absolute',
-                                                                                          top: 0,
-                                                                                          bottom: 0,
-                                                                                          // Calculate left offset based on clip.offset (seconds)
-                                                                                          // offsetSteps = offset / stepDuration
-                                                                                          // left = -offsetSteps * 4.25rem
-                                                                                          left: `calc(-${(clip.offset || 0) / (0.25 * (60.0 / tempo))} * 4.25rem)`,
-                                                                                          width: `calc(${originalDuration} * 4.25rem)`,
-                                                                                          display: 'flex'
-                                                                                     }}
-                                                                                >
-                                                                                     {/* Render enough copies to cover the potential loop?
-                                                                                          For now, just one copy as "Simple Sample" usually implies one shot.
-                                                                                          But if we want looping, we can repeat.
-                                                                                          Let's render 1 copy for now as the user focused on "stretching".
-                                                                                      */}
-                                                                                     <div className="w-full h-full relative">
-                                                                                          {row.sampleData && (
-                                                                                               <WaveformCanvas
-                                                                                                    audioData={row.sampleData}
-                                                                                                    trimStart={0}
-                                                                                                    trimEnd={1}
-                                                                                                    color="#166534"
-                                                                                               />
-                                                                                          )}
-                                                                                     </div>
-                                                                                </div>
+                                                                                {(() => {
+                                                                                     const secondsPerBeat = 60.0 / tempo;
+                                                                                     const stepDuration = 0.25 * secondsPerBeat;
+                                                                                     const offsetSteps = (clip.offset || 0) / stepDuration;
+                                                                                     const totalNeededSteps = offsetSteps + clip.durationSteps;
+                                                                                     // Ensure at least 1 loop, and handle case where originalDuration might be missing or 0 (fallback to durationSteps)
+                                                                                     const safeOriginalDuration = originalDuration || clip.durationSteps || 1;
+                                                                                     const loopCount = Math.ceil(totalNeededSteps / safeOriginalDuration);
+
+                                                                                     return (
+                                                                                          <div
+                                                                                               style={{
+                                                                                                    position: 'absolute',
+                                                                                                    top: 0,
+                                                                                                    bottom: 0,
+                                                                                                    left: `calc(-${offsetSteps} * 4.25rem)`,
+                                                                                                    width: `calc(${loopCount} * ${safeOriginalDuration} * 4.25rem)`,
+                                                                                                    display: 'flex'
+                                                                                               }}
+                                                                                          >
+                                                                                               {Array.from({ length: loopCount }).map((_, i) => (
+                                                                                                    <div
+                                                                                                         key={i}
+                                                                                                         className="h-full relative border-r border-black/10"
+                                                                                                         style={{
+                                                                                                              width: `calc(${safeOriginalDuration} * 4.25rem)`,
+                                                                                                              flexShrink: 0
+                                                                                                         }}
+                                                                                                    >
+                                                                                                         {row.sampleData && (
+                                                                                                              <WaveformCanvas
+                                                                                                                   audioData={row.sampleData}
+                                                                                                                   trimStart={0}
+                                                                                                                   trimEnd={1}
+                                                                                                                   color="#166534"
+                                                                                                              />
+                                                                                                         )}
+                                                                                                    </div>
+                                                                                               ))}
+                                                                                          </div>
+                                                                                     );
+                                                                                })()}
                                                                            </div>
 
                                                                            <span className="relative z-10 font-bold text-xs p-1 text-green-900 truncate block">{row.name}</span>
@@ -1860,6 +1873,7 @@ export const MusicCreator: React.FC<MusicCreatorProps> = ({ onSave, onCancel, in
                                              onDragStart={(e) => {
                                                   e.dataTransfer.setData('application/json', JSON.stringify({ type: 'SAMPLE', ...sample }));
                                                   e.dataTransfer.effectAllowed = 'copy';
+                                                  setTimeout(() => setIsLibraryOpen(false), 100);
                                              }}
                                         >
                                              <div className="flex-1 bg-green-50 relative">
