@@ -1,7 +1,7 @@
-
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { GameData, InteractionType, LevelObject, RuleTrigger, RuleEffect, Actor, MusicRow } from '../types';
-import { ACTOR_SIZE, SCENE_HEIGHT, SCENE_WIDTH, CANVAS_SIZE } from '../constants';
+import { Rule, RuleTrigger, RuleEffect, LevelObject, Actor, InteractionType, ActiveAnimation, GameData, MusicRow } from '../types';
+
+import { SCENE_WIDTH, SCENE_HEIGHT, ACTOR_SIZE, MOVE_STEP, DEFAULT_ACTOR_ID, DEFAULT_HERO } from '../constants';
 import { Trophy, Skull, MousePointer, DoorOpen, Loader2, Play, Volume2, Hash } from 'lucide-react';
 
 interface GamePlayerProps {
@@ -106,13 +106,34 @@ const AnimatedSprite = ({
         return () => cancelAnimationFrame(requestRef.current);
     }, [activeFrames.length, isPlaying, isLooping]);
 
+    const [imgError, setImgError] = useState(false);
+
     const displayImage = isPlaying ? activeFrames[frameIdx] : (baseActor.frames?.[0] || baseActor.imageData);
+
+    if (!displayImage) {
+        console.warn('AnimatedSprite: No image data for actor', baseActor.id, baseActor.name);
+        return <div className="w-full h-full bg-pink-500/50 flex items-center justify-center text-[10px] font-bold text-white border-2 border-pink-500">NO DATA</div>;
+    }
+
+    if (imgError) {
+        return (
+            <div className="w-full h-full bg-red-500/50 flex flex-col items-center justify-center text-[8px] font-bold text-white border-2 border-red-500 overflow-hidden">
+                <span>ERR</span>
+                <span className="truncate w-full text-center">{baseActor.name}</span>
+            </div>
+        );
+    }
 
     return (
         <img
             src={displayImage}
             alt={baseActor.name}
-            className={`w-full h-full object-contain drop-shadow-sm pointer-events-none ${isEphemeral ? '' : ''}`}
+            className={`w-full h-full object-fill drop-shadow-sm pointer-events-none ${isEphemeral ? '' : ''}`}
+            style={{ imageRendering: 'pixelated' }} // Ensure sharp scaling
+            onError={() => {
+                console.error('AnimatedSprite: Failed to load image for', baseActor.name);
+                setImgError(true);
+            }}
         />
     );
 };
@@ -784,7 +805,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                         }
                     }
 
-                    if (o.vx || o.vy || o.z || o.vz) {
+                    if (o.vx || o.vy || o.z || o.vz || o.hasGravity) {
                         changed = true;
                         let nx = o.x + (o.vx || 0) * dt * 60; // Scale speed
                         let ny = o.y + (o.vy || 0) * dt * 60;
@@ -793,28 +814,131 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                         let nz = (o.z || 0) + (o.vz || 0) * dt * 60;
                         let nvz = (o.vz || 0);
 
-                        // Gravity
+                        // Gravity (Z-Axis - Jumps)
                         if (nz > 0 || nvz > 0) {
                             nvz -= 1.5 * dt * 60; // Gravity force
                         }
 
-                        // Ground collision
-                        if (nz < 0) {
-                            nz = 0;
-                            nvz = 0;
+                        // AUTO DESTROY CHECK
+                        if (o.autoDestroy) {
+                            const scaleX = o.scaleX !== undefined ? o.scaleX : (o.scale || 1.0);
+                            const scaleY = o.scaleY !== undefined ? o.scaleY : (o.scale || 1.0);
+                            const width = ACTOR_SIZE * scaleX;
+                            const height = ACTOR_SIZE * scaleY;
+
+                            const isOffScreen =
+                                (nx + width < -100) || // Left
+                                (nx > SCENE_WIDTH + 100) || // Right
+                                (ny + height < -100) || // Top
+                                (ny > SCENE_HEIGHT + 100); // Bottom
+
+                            if (isOffScreen) {
+                                console.log('AUTO DESTROY:', o.id, { nx, ny, width, height, SCENE_WIDTH, SCENE_HEIGHT });
+                                return null; // Remove object
+                            }
+                        }
+
+                        // 2D Gravity (Y-Axis - Flappy Bird)
+                        if (o.hasGravity) {
+                            if (o.vy === undefined) o.vy = 0;
+                            const gravity = 0.4; // Reduced from 0.5 + 0.8
+                            o.vy += gravity;
+                        }
+
+                        // SCREEN BOUNDS CHECK (Clamping)
+                        // Force screen collision for gravity objects (Hero)
+                        if (o.hasScreenCollision || o.hasGravity) {
+                            const scaleY = o.scaleY !== undefined ? o.scaleY : (o.scale || 1.0);
+                            const height = ACTOR_SIZE * scaleY;
+
+                            // Clamp Y
+                            if (ny < 0) {
+                                ny = 0;
+                                if ((o.vy || 0) < 0) o.vy = 0; // Stop moving up
+                            } else if (ny + height > SCENE_HEIGHT) {
+                                ny = SCENE_HEIGHT - height;
+                                if ((o.vy || 0) > 0) o.vy = 0; // Stop moving down
+                            }
+                        }
+
+                        // OFF SCREEN CHECK
+                        const margin = 50;
+                        const currentScaleX = o.scaleX !== undefined ? o.scaleX : (o.scale || 1.0);
+                        const currentScaleY = o.scaleY !== undefined ? o.scaleY : (o.scale || 1.0);
+                        const dW = ACTOR_SIZE * currentScaleX;
+                        const dH = ACTOR_SIZE * currentScaleY;
+
+                        // Check if the object is COMPLETELY off screen
+                        const isOffScreen = (nx + dW) < -margin || nx > SCENE_WIDTH + margin || (ny + dH) < -margin || ny > SCENE_HEIGHT + margin;
+
+                        if (isOffScreen) {
+                            // Trigger logic handled below in the loop over 'next'
                         }
 
                         // Bounds check for projectiles (destroy if out of bounds)
-                        if (nx < -50 || nx > SCENE_WIDTH + 50 || ny < -50 || ny > SCENE_HEIGHT + 50) {
+                        if (o.isEphemeral && isOffScreen) {
                             return null; // Mark for deletion
                         }
-                        return { ...o, x: nx, y: ny, z: nz, vz: nvz };
+
+                        // NEW: Apply Gravity to VY for next frame
+                        let finalVy = o.vy || 0;
+                        // REMOVED EXTRA GRAVITY APPLICATION HERE
+
+                        return { ...o, x: nx, y: ny, z: nz, vz: nvz, vy: finalVy };
                     }
                     return o;
                 }).filter(Boolean) as LevelObject[];
 
+                // PROCESS OFF-SCREEN TRIGGERS
+                // We need to identify objects that are off-screen in 'next' but weren't (or we just check 'next').
+                // To avoid spamming, we can check if they are newly off-screen?
+                // Or just trigger every frame it is off screen? 
+                // "WHEN OFF SCREEN" implies a continuous state or an event?
+                // Usually "On Exit Screen".
+                // Let's trigger it every frame, but the user should use "Destroy Object" or "Once".
+                // Actually, for Flappy Bird, we want "When Pipe goes off screen -> Destroy it".
+                // If we trigger every frame, and the effect is "Score + 1", it will be infinite score.
+                // So we MUST trigger only once.
+                // We can add a runtime flag 'hasTriggeredOffScreen'.
+
+                next.forEach(obj => {
+                    const margin = 50;
+                    const currentScaleX = obj.scaleX !== undefined ? obj.scaleX : (obj.scale || 1.0);
+                    const currentScaleY = obj.scaleY !== undefined ? obj.scaleY : (obj.scale || 1.0);
+                    const dW = ACTOR_SIZE * currentScaleX;
+                    const dH = ACTOR_SIZE * currentScaleY;
+
+                    // Check if the object is COMPLETELY off screen
+                    const isOffScreen = (obj.x + dW) < -margin || obj.x > SCENE_WIDTH + margin || (obj.y + dH) < -margin || obj.y > SCENE_HEIGHT + margin;
+
+                    if (isOffScreen && !(obj as any).hasTriggeredOffScreen) {
+                        // Trigger!
+                        (obj as any).hasTriggeredOffScreen = true;
+
+                        // We need to execute rules.
+                        // We can't do it directly here safely.
+                        // Let's use a timeout or a ref queue.
+                        // setTimeout is safest to break out of the render/updater cycle.
+                        setTimeout(() => {
+                            const activeRules = gameData.rules.filter(r => r.scope === 'GLOBAL' || r.scope === activeSceneId);
+                            const offScreenRules = activeRules.filter(r => r.trigger === RuleTrigger.OFF_SCREEN);
+
+                            offScreenRules.forEach(rule => {
+                                // Check if this object matches the rule subject?
+                                // Or is it a generic "Any object off screen"?
+                                // Usually rules are "When [Player] [Hits] [Enemy]".
+                                // For Off Screen: "When [Pipe] [Off Screen]".
+                                if (rule.subjectId === obj.actorId) {
+                                    executeRuleEffects(rule.id, rule.effects, obj.id, null);
+                                }
+                            });
+                        }, 0);
+                    }
+                });
+
                 return changed ? next : prev;
             });
+
 
             // Update Particles
             setParticles(prev => {
@@ -1014,16 +1138,118 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
             }
 
             if (effect.type === InteractionType.SPAWN) {
-                if (effect.spawnActorId && effect.spawnX !== undefined && effect.spawnY !== undefined) {
-                    const newObj: LevelObject = {
-                        id: Math.random().toString(36).substr(2, 9),
-                        actorId: effect.spawnActorId,
-                        x: effect.spawnX,
-                        y: effect.spawnY,
-                        scale: 1.0,
-                        isLocked: false
-                    };
-                    setObjects(prev => [...prev, newObj]);
+                // Relaxed validation: only require actorId
+                const hasValidLocation = !!effect.spawnActorId;
+
+                if (hasValidLocation) {
+
+                    // Default to center if Y is not set
+                    let finalY = effect.spawnY !== undefined ? effect.spawnY : SCENE_HEIGHT / 2;
+
+                    if (effect.spawnRandomY) {
+                        const min = effect.spawnYMin !== undefined ? effect.spawnYMin : 0;
+                        const max = effect.spawnYMax !== undefined ? effect.spawnYMax : SCENE_HEIGHT;
+                        finalY = min + Math.random() * (max - min);
+                    }
+
+                    // Default spawnX to SCENE_WIDTH (right edge) if undefined
+                    const finalX = effect.spawnX !== undefined ? effect.spawnX : SCENE_WIDTH;
+
+                    if (effect.spawnMode === 'DOUBLE_VERTICAL') {
+                        // INLINED SPAWN PIPE PAIR LOGIC
+                        // 1. Determine X Position & Velocity
+                        const pipeFinalX = effect.spawnX !== undefined ? effect.spawnX : SCENE_WIDTH + 50;
+
+                        // Velocity: Default to -5 (moving left) if 0 or undefined.
+                        const spawnVx = effect.spawnVelocity?.x ?? 0;
+                        const finalVx = (spawnVx === 0) ? -5 : spawnVx;
+
+                        // 2. Determine Gap Position (Y)
+                        const gap = effect.spawnGap || 150;
+                        const safeMargin = 100; // Minimum distance from top/bottom edges
+                        const minGapY = safeMargin + gap / 2;
+                        const maxGapY = SCENE_HEIGHT - safeMargin - gap / 2;
+
+                        let gapCenterY = SCENE_HEIGHT / 2; // Default center
+
+                        if (effect.spawnRandomY) {
+                            gapCenterY = Math.random() * (maxGapY - minGapY) + minGapY;
+                        } else if (effect.spawnY !== undefined && effect.spawnY !== null) {
+                            gapCenterY = effect.spawnY;
+                        }
+
+                        // Clamp gapCenterY
+                        gapCenterY = Math.max(minGapY, Math.min(gapCenterY, maxGapY));
+
+                        // 3. Calculate Pipe Positions
+                        const topPipeBottomY = gapCenterY - gap / 2;
+                        const bottomPipeTopY = gapCenterY + gap / 2;
+
+                        // 4. Scale & Dimensions
+                        // Use user-defined scaleY if available, otherwise default to 3.0 (240px)
+                        const fixedScaleY = effect.spawnScaleY || 3.0;
+                        const pipeHeight = ACTOR_SIZE * fixedScaleY;
+
+                        // Top Pipe Y (Top-Left corner) = Bottom Edge - Height
+                        const topY = topPipeBottomY - pipeHeight;
+
+                        // Bottom Pipe Y (Top-Left corner) = Top Edge
+                        const bottomY = bottomPipeTopY;
+
+                        const scaleX = effect.spawnScaleX || 1.0;
+
+                        // 5. Determine Actors
+                        const finalActorId2 = effect.spawnActorId2 || effect.spawnActorId!;
+
+                        // 6. Create Objects
+                        const obj1: LevelObject = {
+                            id: Math.random().toString(36).substr(2, 9),
+                            actorId: effect.spawnActorId!,
+                            x: pipeFinalX,
+                            y: topY,
+                            scale: effect.spawnScale || 1.0,
+                            scaleX: scaleX,
+                            scaleY: fixedScaleY,
+                            vx: finalVx,
+                            vy: 0,
+                            isLocked: false,
+                            ignoresGravity: true,
+                            autoDestroy: true,
+                            flipY: true // Top pipe flipped
+                        };
+
+                        const obj2: LevelObject = {
+                            id: Math.random().toString(36).substr(2, 9),
+                            actorId: finalActorId2,
+                            x: pipeFinalX,
+                            y: bottomY,
+                            scale: effect.spawnScale || 1.0,
+                            scaleX: scaleX,
+                            scaleY: fixedScaleY,
+                            vx: finalVx,
+                            vy: 0,
+                            isLocked: false,
+                            ignoresGravity: true,
+                            autoDestroy: true
+                        };
+
+                        setObjects(prev => [...prev, obj1, obj2]);
+                    } else {
+                        const newObj: LevelObject = {
+                            id: Math.random().toString(36).substr(2, 9),
+                            actorId: effect.spawnActorId!,
+                            x: finalX,
+                            y: finalY,
+                            scale: effect.spawnScale || 1.0,
+                            scaleX: effect.spawnScaleX,
+                            scaleY: effect.spawnScaleY,
+                            vx: effect.spawnVelocity?.x || 0,
+                            vy: effect.spawnVelocity?.y || 0,
+                            isLocked: false,
+                            autoDestroy: effect.spawnAutoDestroy
+                        };
+                        setObjects(prev => [...prev, newObj]);
+                    }
                 }
                 previousActionDuration = 0;
                 continue;
@@ -1241,6 +1467,36 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                             return o;
                         }));
                         previousActionDuration = 200; // Small delay for visual feedback
+                        break;
+                        previousActionDuration = 200; // Small delay for visual feedback
+                        break;
+                    case InteractionType.SET_VELOCITY:
+                        setObjects(prev => prev.map(o => {
+                            if (o.id === targetId) {
+                                return {
+                                    ...o,
+                                    vx: effect.velocity?.x !== undefined ? effect.velocity.x : o.vx,
+                                    vy: effect.velocity?.y !== undefined ? effect.velocity.y : o.vy,
+                                    // Auto-enable gravity if jumping (negative Y velocity) to prevent flying off forever
+                                    hasGravity: (effect.velocity?.y !== undefined && effect.velocity.y < 0) ? true : o.hasGravity
+                                };
+                            }
+                            return o;
+                        }));
+                        previousActionDuration = 0;
+                        break;
+                    case InteractionType.SET_GRAVITY:
+                        setObjects(prev => prev.map(o => {
+                            if (o.id === targetId) {
+                                return { ...o, hasGravity: !o.hasGravity }; // Toggle? Or Set? Let's assume Toggle for now or True.
+                                // Actually, better to have a value. But for now, let's just enable it.
+                                // Or maybe the effect value 1 = ON, 0 = OFF.
+                                // Let's assume it enables it.
+                                return { ...o, hasGravity: true };
+                            }
+                            return o;
+                        }));
+                        previousActionDuration = 0;
                         break;
                     case InteractionType.SHAKE:
                         setShakeIntensity(20); // Shake hard!
@@ -1574,15 +1830,28 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                 if (now - lastTime >= intervalMs) {
                     lastTimerExecution.current[rule.id] = now;
 
-                    const targets = objectsRef.current.filter(o => o.actorId === rule.subjectId);
-                    if (targets.length > 0) {
-                        targets.forEach(t => {
-                            if (rule.soundId) playSound(rule.soundId);
-                            executeRuleEffects(rule.id, rule.effects, t.id, null);
-                        });
-                    } else if (!rule.subjectId) {
+                    // SAFEGUARD: Check for Self-Replication (Grey Goo Scenario)
+                    const isSelfReplicatingSpawn = rule.effects.some(e => e.type === InteractionType.SPAWN && (e.spawnActorId === rule.subjectId || e.spawnActorId2 === rule.subjectId));
+
+                    if (isSelfReplicatingSpawn) {
+                        // FORCE GLOBAL EXECUTION
+                        // If the rule is "Pipe spawns Pipe", we treat it as "Global spawns Pipe"
+                        // This prevents exponential growth AND allows spawning when 0 pipes exist.
                         if (rule.soundId) playSound(rule.soundId);
+                        // Use 'GLOBAL' as subjectId to indicate it's a system event, not attached to an object
                         executeRuleEffects(rule.id, rule.effects, 'GLOBAL', null);
+                    } else {
+                        // Normal behavior
+                        const targets = objectsRef.current.filter(o => o.actorId === rule.subjectId);
+                        if (targets.length > 0) {
+                            targets.forEach(t => {
+                                if (rule.soundId) playSound(rule.soundId);
+                                executeRuleEffects(rule.id, rule.effects, t.id, null);
+                            });
+                        } else if (!rule.subjectId) {
+                            if (rule.soundId) playSound(rule.soundId);
+                            executeRuleEffects(rule.id, rule.effects, 'GLOBAL', null);
+                        }
                     }
                 }
             });
@@ -1596,6 +1865,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
         if (status !== 'PLAYING') return;
 
         const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.repeat) return; // Ignore auto-repeat (holding key)
             const key = e.key.toUpperCase();
             let mappedKey = key;
 
@@ -1693,31 +1963,45 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
         return true;
     };
 
-    const getCollisionPoly = (obj: { x: number, y: number, scale?: number, actorId?: string }, buffer = 0) => {
+    const getCollisionPoly = (obj: { x: number, y: number, scale?: number, scaleX?: number, scaleY?: number, actorId?: string }, buffer = 0) => {
         const actor = obj.actorId ? getActor(obj.actorId) : null;
-        const scale = obj.scale || 1;
-        const size = ACTOR_SIZE * scale;
-        const x = obj.x - buffer;
-        const y = obj.y - buffer;
-        const w = size + buffer * 2;
-        const h = size + buffer * 2;
+        // Default to uniform scale if scaleX/Y not set
+        const sx = (obj.scaleX !== undefined ? obj.scaleX : (obj.scale || 1.0));
+        const sy = (obj.scaleY !== undefined ? obj.scaleY : (obj.scale || 1.0));
 
-        if (actor?.collisionShape?.type === 'POLYGON' && actor.collisionShape.points) {
-            // Transform points to world space
-            // Points are in CANVAS_SIZE (128) space, need to scale to ACTOR_SIZE (80) * scale
-            const s = (size / CANVAS_SIZE);
-            return actor.collisionShape.points.map(p => ({
-                x: x + p.x * s,
-                y: y + p.y * s
-            }));
+        let w = ACTOR_SIZE * sx;
+        let h = ACTOR_SIZE * sy;
+        let ox = 0;
+        let oy = 0;
+
+        // CUSTOM COLLISION SHAPE
+        if (actor?.collisionShape && actor.collisionShape.type === 'RECT') {
+            // Use custom dimensions if available
+            // Note: We apply the object's scale to the custom shape too
+            const customW = actor.collisionShape.width ?? ACTOR_SIZE;
+            const customH = actor.collisionShape.height ?? ACTOR_SIZE;
+            const customOX = actor.collisionShape.offsetX ?? 0;
+            const customOY = actor.collisionShape.offsetY ?? 0;
+
+            w = customW * sx;
+            h = customH * sy;
+            ox = customOX * sx;
+            oy = customOY * sy;
         }
 
-        // Default Rect
+        // Simple AABB for now (rotated sprites would need OBB)
+        // Buffer shrinks the box slightly for forgiving collision
+        const b = buffer;
+
+        // Apply offset to the base position
+        const finalX = obj.x + ox;
+        const finalY = obj.y + oy;
+
         return [
-            { x, y },
-            { x: x + w, y },
-            { x: x + w, y: y + h },
-            { x, y: y + h }
+            { x: finalX + b, y: finalY + b },
+            { x: finalX + w - b, y: finalY + b },
+            { x: finalX + w - b, y: finalY + h - b },
+            { x: finalX + b, y: finalY + h - b }
         ];
     };
 
@@ -2003,7 +2287,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                             if (!continuousCollisions[r.id]) {
                                 continuousCollisions[r.id] = new Set();
                             }
-                            const pairKey = `${movingObj.id}_${other.id}`;
+                            const pairKey = `${ movingObj.id }_${ other.id } `;
                             if (!continuousCollisions[r.id].has(pairKey)) {
                                 continuousCollisions[r.id].add(pairKey);
                                 triggerRule(r, movingObj.id, other.id);
@@ -2069,7 +2353,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
             <div className="bg-[#333] p-4 md:p-8 rounded-[2.5rem] shadow-[15px_20px_0px_rgba(0,0,0,0.8)] relative flex flex-col items-center border-4 border-black max-h-screen scale-90 md:scale-100">
                 <div className="bg-[#88919d] p-3 rounded-xl border-4 border-black shadow-[inset_0_0_20px_rgba(0,0,0,0.5)] mb-6">
                     <div
-                        className={`bg-white relative overflow-hidden border-2 border-black/80 shadow-inner cursor-none ${shakeIntensity > 0 ? 'animate-shake' : ''}`}
+                        className={`bg-white relative overflow-hidden border-2 border-black/80 shadow-inner cursor-none ${shakeIntensity > 0 ? 'animate-shake' : ''} `}
                         style={{
                             width: '800px', height: '600px', maxWidth: '80vw', maxHeight: '60vh',
                             backgroundColor: gameData.backgroundColor, cursor: 'default',
@@ -2085,7 +2369,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                         {particles.map(p => (
                             <div
                                 key={p.id}
-                                className={`absolute rounded-sm ${p.type === 'SMOKE' && !p.actorId ? 'rounded-full blur-sm' : ''}`}
+                                className={`absolute rounded-sm ${p.type === 'SMOKE' && !p.actorId ? 'rounded-full blur-sm' : ''} `}
                                 style={{
                                     left: p.x,
                                     top: p.y,
@@ -2147,165 +2431,70 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
 
                         <div className="w-full h-full relative" style={{ transform: 'scale(1)', transformOrigin: 'top left' }}>
                             {objects.map(obj => {
+                                // MINIMAL DEBUG RENDER
+                                // If this works, the crash was in the complex components.
+                                // RESTORING ANIMATED SPRITE
+                                // We keep SpeechBubble and VariableMonitor commented out to ensure stability.
+
                                 const actor = getActor(obj.actorId);
-                                const playingActor = obj.activeAnimation ? getActor(obj.activeAnimation.playingActorId) : undefined;
                                 if (!actor) return null;
                                 const isDragging = draggingId === obj.id;
-                                const currentScale = obj.scale || 1.0;
-                                const displaySize = ACTOR_SIZE * currentScale;
-                                const activeBubble = activeBubbles[obj.id];
+                                // FIX: Use ACTOR_SIZE and specific scaleX/scaleY properties
+                                const currentScaleX = obj.scaleX !== undefined ? obj.scaleX : (obj.scale || 1.0);
+                                const currentScaleY = obj.scaleY !== undefined ? obj.scaleY : (obj.scale || 1.0);
+                                const displayWidth = ACTOR_SIZE * currentScaleX;
+                                const displayHeight = ACTOR_SIZE * currentScaleY;
+
+                                if (!actor) return null;
+
+                                const playingActor = obj.activeAnimation?.playingActorId ? gameData.actors.find(a => a.id === obj.activeAnimation?.playingActorId) : actor;
 
                                 return (
-                                    <>
+                                    <div key={obj.id} className="absolute inset-0 pointer-events-none">
                                         {/* SHADOW (Only when in air) */}
                                         {(obj.z || 0) > 0 && (
                                             <div
                                                 className="absolute bg-black/20 rounded-full blur-[2px]"
                                                 style={{
-                                                    left: obj.x + displaySize * 0.2,
-                                                    top: obj.y + displaySize * 0.8,
-                                                    width: displaySize * 0.6,
-                                                    height: displaySize * 0.2,
+                                                    left: obj.x + displayWidth * 0.2,
+                                                    top: obj.y + displayHeight * 0.8,
+                                                    width: displayWidth * 0.6,
+                                                    height: displayHeight * 0.2,
                                                     zIndex: 5 + Math.floor(obj.y) // Ground level z-index
                                                 }}
                                             />
                                         )}
                                         <div
-                                            key={obj.id}
-                                            onMouseDown={(e) => handleMouseDown(e, obj)}
-                                            className={`absolute flex items-center justify-center select-none ${!obj.isLocked ? 'cursor-grab active:cursor-grabbing' : ''} ${obj.isEphemeral ? 'pointer-events-none' : ''}`}
+                                            onMouseDown={(e) => { e.stopPropagation(); handleMouseDown(e, obj); }}
+                                            className={`absolute flex items-center justify-center select-none pointer-events-auto ${!obj.isLocked ? 'cursor-grab active:cursor-grabbing' : ''} ${obj.isEphemeral ? 'pointer-events-none' : ''} `}
                                             style={{
-                                                left: obj.x, top: obj.y - (obj.z || 0), width: displaySize, height: displaySize,
-                                                zIndex: isDragging ? 50 : 10 + Math.floor(obj.y), // Use Y for Z-sorting
+                                                left: obj.x,
+                                                top: obj.y,
+                                                width: obj.scaleX ? obj.scaleX * ACTOR_SIZE : (obj.scale || 1) * ACTOR_SIZE,
+                                                height: obj.scaleY ? obj.scaleY * ACTOR_SIZE : (obj.scale || 1) * ACTOR_SIZE,
                                                 transition: isDragging ? 'none' : 'transform 0.1s',
-                                                transform: isDragging ? 'scale(1.05)' : 'scale(1)', opacity: obj.isEphemeral ? 0.9 : 1
+                                                transformOrigin: 'center',
+                                                transform: `${isDragging ? 'scale(1.05)' : 'scale(1)'} ${obj.flipY ? 'scale(1, -1)' : ''}`, // Use scale for flip
+                                                opacity: obj.isEphemeral ? 0.9 : 1
                                             }}
                                         >
-                                            {activeBubble && <SpeechBubble text={activeBubble.text} />}
-                                            <AnimatedSprite baseActor={actor} playingActor={playingActor} isLooping={obj.activeAnimation?.isLoop} isEphemeral={obj.isEphemeral} onFinish={() => handleAnimationFinish(obj.id)} triggerTime={obj.activeAnimation?.startTime} />
+                                            {/* {activeBubble && <SpeechBubble text={activeBubble.text} />} */}
 
-                                            {/* ATTACHED VARIABLE MONITOR (HUD) */}
-                                            {obj.variableMonitor && (
-                                                <>
-                                                    {/* POPUP MODE: Show button */}
-                                                    {obj.variableMonitor.displayMode === 'POPUP' && (
-                                                        <>
-                                                            <button
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    setActiveVariablePopup(activeVariablePopup === obj.id ? null : obj.id);
-                                                                }}
-                                                                className="absolute -top-3 -right-3 w-8 h-8 bg-white border-2 border-black rounded-full flex items-center justify-center shadow-sm hover:scale-110 transition-transform z-50"
-                                                            >
-                                                                <span className="font-bold text-xs">i</span>
-                                                            </button>
+                                            <AnimatedSprite
+                                                baseActor={actor}
+                                                playingActor={playingActor}
+                                                isLooping={obj.activeAnimation?.isLoop}
+                                                isEphemeral={obj.isEphemeral}
+                                                onFinish={() => handleAnimationFinish(obj.id)}
+                                                triggerTime={obj.activeAnimation?.startTime}
+                                            />
 
-                                                            {/* POPUP HUD */}
-                                                            {activeVariablePopup === obj.id && (
-                                                                <div className="absolute bottom-[110%] left-1/2 -translate-x-1/2 bg-white border-[3px] border-black rounded-xl p-3 shadow-[4px_4px_0px_rgba(0,0,0,0.5)] z-[60] min-w-[140px] animate-in zoom-in duration-200 origin-bottom">
-                                                                    {(() => {
-                                                                        const val = runtimeVariables[obj.variableMonitor!.variableId] ?? 0;
-                                                                        const vDef = gameData.variables?.find(v => v.id === obj.variableMonitor!.variableId);
-                                                                        const name = vDef ? vDef.name : "???";
-
-                                                                        return (
-                                                                            <div className="flex flex-col gap-2">
-                                                                                <div className="font-bold text-sm text-center uppercase border-b-2 border-black/10 pb-1">{name}</div>
-
-                                                                                {obj.variableMonitor!.mode === 'TEXT' ? (
-                                                                                    <div className="text-center text-2xl font-bold">{val}</div>
-                                                                                ) : (
-                                                                                    <div className="flex flex-col gap-1 w-full">
-                                                                                        <div className="w-full h-4 bg-gray-200 rounded-full overflow-hidden border-2 border-black relative">
-                                                                                            <div
-                                                                                                className="h-full transition-all duration-300"
-                                                                                                style={{
-                                                                                                    width: `${Math.min(100, Math.max(0, (val / (obj.variableMonitor!.maxValue || 100)) * 100))}%`,
-                                                                                                    backgroundColor: obj.variableMonitor!.barColor || '#22c55e'
-                                                                                                }}
-                                                                                            ></div>
-                                                                                        </div>
-                                                                                        <div className="text-xs font-bold text-center text-gray-500">
-                                                                                            {val} / {obj.variableMonitor!.maxValue || 100}
-                                                                                        </div>
-                                                                                    </div>
-                                                                                )}
-                                                                            </div>
-                                                                        );
-                                                                    })()}
-                                                                    {/* Triangle tail */}
-                                                                    <div className="absolute bottom-[-8px] left-1/2 -translate-x-1/2 w-0 h-0 border-l-[8px] border-l-transparent border-r-[8px] border-r-transparent border-t-[8px] border-t-black"></div>
-                                                                    <div className="absolute bottom-[-4px] left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[6px] border-t-white"></div>
-                                                                </div>
-                                                            )}
-                                                        </>
-                                                    )}
-
-                                                    {/* ALWAYS_VISIBLE MODE: Direct integration into sprite */}
-                                                    {(obj.variableMonitor.displayMode === 'ALWAYS_VISIBLE' || !obj.variableMonitor.displayMode) && (
-                                                        <div
-                                                            className="absolute pointer-events-none select-none flex flex-col items-center justify-center font-bold z-50"
-                                                            style={{
-                                                                left: '50%',
-                                                                top: '50%',
-                                                                transform: `translate(-50%, -50%) translate(${obj.variableMonitor.offsetX || 0}px, ${obj.variableMonitor.offsetY || 0}px)`,
-                                                                width: obj.variableMonitor.width ? `${obj.variableMonitor.width}px` : 'auto',
-                                                                minWidth: obj.variableMonitor.width ? 'auto' : 100,
-                                                                padding: (obj.variableMonitor.showBackground ?? true) ? 4 : 0,
-                                                                backgroundColor: (obj.variableMonitor.showBackground ?? true) ? (obj.variableMonitor.backgroundColor || 'rgba(0,0,0,0.5)') : 'transparent',
-                                                                borderRadius: (obj.variableMonitor.showBackground ?? true) ? 8 : 0,
-                                                                fontFamily: 'monospace',
-                                                                color: obj.variableMonitor.textColor || '#FFFFFF'
-                                                            }}
-                                                        >
-                                                            {(() => {
-                                                                const val = runtimeVariables[obj.variableMonitor!.variableId] ?? 0;
-                                                                const vDef = gameData.variables?.find(v => v.id === obj.variableMonitor!.variableId);
-                                                                const name = vDef ? vDef.name : "???";
-
-                                                                if (obj.variableMonitor!.mode === 'TEXT') {
-                                                                    return (
-                                                                        <div className="text-center text-lg whitespace-nowrap">
-                                                                            {(obj.variableMonitor!.showLabel ?? true) && `${name}: `}{val}
-                                                                        </div>
-                                                                    );
-                                                                } else {
-                                                                    const barHeight = obj.variableMonitor!.height || 16;
-                                                                    return (
-                                                                        <div className="flex flex-col gap-1 w-full">
-                                                                            {(obj.variableMonitor!.showLabel ?? true) && (
-                                                                                <div className="text-[10px] uppercase">{name}</div>
-                                                                            )}
-                                                                            <div
-                                                                                className="w-full bg-gray-700 rounded-full overflow-hidden border border-white/20 relative"
-                                                                                style={{ height: `${barHeight}px` }}
-                                                                            >
-                                                                                <div
-                                                                                    className="h-full transition-all duration-300"
-                                                                                    style={{
-                                                                                        width: `${Math.min(100, Math.max(0, (val / (obj.variableMonitor!.maxValue || 100)) * 100))}%`,
-                                                                                        backgroundColor: obj.variableMonitor!.barColor || '#22c55e'
-                                                                                    }}
-                                                                                ></div>
-                                                                                {barHeight >= 12 && (obj.variableMonitor!.showLabel ?? true) && (
-                                                                                    <div className="absolute inset-0 flex items-center justify-center text-[8px] drop-shadow-md text-white">
-                                                                                        {val} / {obj.variableMonitor!.maxValue || 100}
-                                                                                    </div>
-                                                                                )}
-                                                                            </div>
-                                                                        </div>
-                                                                    );
-                                                                }
-                                                            })()}
-                                                        </div>
-                                                    )}
-                                                </>
-                                            )}
+                                            {/* ATTACHED VARIABLE MONITOR (HUD) - COMMENTED OUT */}
                                         </div>
-                                    </>
+                                    </div>
                                 );
                             })}
-                        </div >
+                        </div>
 
                         {(status === 'WON' || status === 'LOST' || status === 'TRANSITION') && (
                             <div className="absolute inset-0 bg-black/70 backdrop-blur-sm flex flex-col items-center justify-center animate-in zoom-in duration-300 p-4 z-50">

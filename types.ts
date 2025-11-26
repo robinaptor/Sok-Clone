@@ -46,7 +46,8 @@ export enum RuleTrigger {
   TIMER = 'TIMER',  // Triggered periodically
   VAR_CHECK = 'VAR_CHECK', // Triggered when variable meets condition
   KEY_PRESS = 'KEY_PRESS', // NEW: Keyboard control
-  HIT = 'HIT' // NEW: When hit by projectile
+  HIT = 'HIT', // NEW: When hit by projectile
+  OFF_SCREEN = 'OFF_SCREEN' // NEW: When object leaves screen
 }
 
 export enum InteractionType {
@@ -73,7 +74,9 @@ export enum InteractionType {
   THEN = 'THEN', // Sequence / Delay modifier
   WAIT = 'WAIT', // NEW: Pause execution
   STEP = 'STEP', // NEW: Move one step
-  PLAY_MUSIC = 'PLAY_MUSIC' // NEW: Trigger music playback
+  PLAY_MUSIC = 'PLAY_MUSIC', // NEW: Trigger music playback
+  SET_VELOCITY = 'SET_VELOCITY', // NEW: Physics control
+  SET_GRAVITY = 'SET_GRAVITY' // NEW: Enable/Disable gravity
 }
 
 export interface RuleEffect {
@@ -115,6 +118,22 @@ export interface RuleEffect {
   // For PUSH
   direction?: 'UP' | 'DOWN' | 'LEFT' | 'RIGHT';
   force?: number;
+  // For SET_VELOCITY
+  velocity?: { x: number, y: number }; // NEW
+  // For SET_GRAVITY
+  hasScreenCollision?: boolean; // NEW
+  // For SPAWN
+  spawnRandomY?: boolean; // NEW: Randomize Y position
+  spawnYMin?: number; // NEW: Min Y for random spawn
+  spawnYMax?: number; // NEW: Max Y for random spawn
+  spawnScale?: number; // NEW: Scale of spawned object
+  spawnScaleX?: number; // NEW: Non-uniform scale X
+  spawnScaleY?: number; // NEW: Non-uniform scale Y
+  spawnVelocity?: { x: number, y: number }; // NEW: Velocity of spawned object
+  spawnMode?: 'SINGLE' | 'DOUBLE_VERTICAL'; // NEW: Spawn mode
+  spawnActorId2?: string; // NEW: Second actor for double spawn
+  spawnGap?: number; // NEW: Gap size for double spawn
+  spawnAutoDestroy?: boolean; // NEW: Automatically destroy when off-screen
 }
 
 export interface Rule {
@@ -159,14 +178,21 @@ export interface LevelObject {
   vy?: number;
   z?: number; // Altitude (for jumps)
   vz?: number; // Vertical velocity (for jumps)
+  ignoresGravity?: boolean; // NEW: If true, object is not affected by gravity
   isEphemeral?: boolean; // If true, not saved to scene (e.g. projectiles)
   scale?: number; // For projectiles or effects
+  scaleX?: number; // NEW: Non-uniform scale X
+  scaleY?: number; // NEW: Non-uniform scale Y
   activePath?: {
     points: { x: number, y: number }[];
     currentIndex: number;
     speed: number;
     loop: boolean;
   };
+  hasGravity?: boolean; // NEW: If true, falls down
+  hasScreenCollision?: boolean; // NEW: If true, clamps to screen edges
+  autoDestroy?: boolean; // NEW: If true, destroys when off-screen
+  flipY?: boolean; // NEW: If true, flips the object vertically
 
   // Inventory state
   heldBy?: string; // ID of the actor holding this object

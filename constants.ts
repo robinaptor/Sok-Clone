@@ -66,7 +66,9 @@ export const INTERACTION_LABELS: Record<InteractionType, string> = {
   [InteractionType.MOVE]: 'MOVES', // NEW
   [InteractionType.JUMP]: 'JUMPS',
   [InteractionType.STEP]: 'Step (1 Tile)',
-  [InteractionType.PLAY_MUSIC]: 'Play Music'
+  [InteractionType.PLAY_MUSIC]: 'Play Music',
+  [InteractionType.SET_VELOCITY]: 'Set Velocity',
+  [InteractionType.SET_GRAVITY]: 'Set Gravity'
 };
 
 // NEW: Magnet Definitions categorized
@@ -78,6 +80,7 @@ export const TRIGGER_MAGNETS = [
   { type: RuleTrigger.START, label: 'START', color: '#86efac', icon: 'flag' }, // Green
   { type: RuleTrigger.TIMER, label: 'TIMER', color: '#93c5fd', icon: 'hourglass' }, // Blue
   { type: RuleTrigger.VAR_CHECK, label: 'VAR?', color: '#60a5fa', icon: 'hash' }, // Blue (NEW)
+  { type: RuleTrigger.OFF_SCREEN, label: 'OFF SCREEN', color: '#fb923c', icon: 'log-out' }, // Orange
 ];
 
 export const EFFECT_MAGNETS = [
@@ -109,6 +112,8 @@ export const EFFECT_MAGNETS = [
 
   { type: InteractionType.THEN, label: 'THEN', color: '#9ca3af', icon: 'timer' }, // Grey/Timer
   { type: InteractionType.PLAY_MUSIC, label: 'MUSIC', color: '#ec4899', icon: 'music' }, // Pink
+  { type: InteractionType.SET_VELOCITY, label: 'VELOCITY', color: '#0ea5e9', icon: 'wind' }, // Sky Blue
+  { type: InteractionType.SET_GRAVITY, label: 'GRAVITY', color: '#8b5cf6', icon: 'arrow-down' }, // Violet
 ];
 
 export const NOT_MAGNET = {

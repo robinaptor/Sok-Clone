@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { GameData, Rule, InteractionType, RuleTrigger, Sound, GlobalVariable, RuleEffect } from '../types';
 import { TRIGGER_MAGNETS, EFFECT_MAGNETS, SCENE_WIDTH, SCENE_HEIGHT } from '../constants';
-import { X, Plus, Play, Save, Edit2, Edit3, Trash2, Eye, Hand, Flag, Clock, Square, Utensils, ArrowRight, Trophy, DoorOpen, Skull, Zap, Ban, Timer, Sparkles, RefreshCw, Clapperboard, Hash, PlusCircle, MessageCircle, MessageSquare, Keyboard, Footprints, Activity, Crosshair, Target, ArrowDownCircle, Hourglass, Puzzle, Globe, MapPin, Volume2, VolumeX, Mic, Upload, Download, Info, HelpCircle, Settings, Repeat, ChevronsRight, Dices, RotateCw, ArrowDown, Calculator, Map, Gamepad2, Ghost, Coins, AlertTriangle, Copy, Clipboard, Heart, Music } from 'lucide-react';
+import { X, Plus, Play, Save, Edit2, Edit3, Trash2, Eye, Hand, Flag, Clock, Square, Utensils, ArrowRight, Trophy, DoorOpen, Skull, Zap, Ban, Timer, Sparkles, RefreshCw, Clapperboard, Hash, PlusCircle, MessageCircle, MessageSquare, Keyboard, Footprints, Activity, Crosshair, Target, ArrowDownCircle, Hourglass, Puzzle, Globe, MapPin, Volume2, VolumeX, Mic, Upload, Download, Info, HelpCircle, Settings, Repeat, ChevronsRight, Dices, RotateCw, ArrowDown, Calculator, Map, Gamepad2, Ghost, Coins, AlertTriangle, Copy, Clipboard, Heart, Music, Wind, LogOut } from 'lucide-react';
 import { SoundRecorder } from './SoundRecorder';
 import { IconEditor } from './IconEditor';
 
@@ -194,6 +194,36 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
         duration: number;
     } | null>(null);
 
+    // NEW: Velocity Config Modal
+    const [velocityConfigModal, setVelocityConfigModal] = useState<{
+        ruleId: string;
+        effectIndex: number;
+        vx: number;
+        vy: number;
+    } | null>(null);
+
+    // NEW: Spawn Config Modal (for Random Y)
+    const [spawnConfigModal, setSpawnConfigModal] = useState<{
+        ruleId: string;
+        effectIndex: number;
+        randomY: boolean;
+        minY: number;
+        maxY: number;
+        scale: number;
+        scaleX?: number;
+        scaleY?: number;
+        vx: number;
+        vy: number;
+        x?: number;
+        y?: number;
+        mode?: 'SINGLE' | 'DOUBLE_VERTICAL';
+        actorId2?: string;
+        gap?: number;
+        autoDestroy?: boolean;
+    } | null>(null);
+
+    // NEW: Gravity Config Modal
+    const [gravityConfigModal, setGravityConfigModal] = useState<{ ruleId: string, effectIndex: number, hasScreenCollision: boolean } | null>(null);
 
     // NEW: State for Creating/Editing Variable
     const [showNewVarModal, setShowNewVarModal] = useState(false);
@@ -250,6 +280,8 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
             case 'clock': return <Clock size={20} strokeWidth={3} />;
             case 'dice': return <div className="border-2 border-current rounded w-5 h-5 flex items-center justify-center font-bold text-[10px]">50</div>;
             case 'music': return <Music size={20} strokeWidth={3} />;
+            case 'wind': return <Wind size={20} strokeWidth={3} />;
+            case 'log-out': return <LogOut size={20} strokeWidth={3} />;
             default: return <HelpCircle size={20} />;
         }
     };
@@ -470,6 +502,18 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                             allowTargetSelection: false
                         });
                     }, 50);
+                } else if (interaction === InteractionType.SET_VELOCITY) {
+                    newEffect.velocity = { x: 0, y: 0 };
+                    setTimeout(() => {
+                        setVelocityConfigModal({
+                            ruleId,
+                            effectIndex: gameData.rules.find(r => r.id === ruleId)!.effects.length - 1,
+                            vx: 0,
+                            vy: 0
+                        });
+                    }, 50);
+                } else if (interaction === InteractionType.SET_GRAVITY) {
+                    // No config needed for now, just toggle on
                 }
 
                 onUpdateRules(gameData.rules.map(r => {
@@ -2084,7 +2128,10 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                                             )}
                                                         </div>
                                                         {isSpawn && effect.spawnActorId && (
-                                                            <button onClick={() => setPickingLocationFor({ ruleId: rule.id, effectIndex: idx })} className={`absolute -top-2 -left-2 w-6 h-6 border-2 border-black rounded-full flex items-center justify-center transition-colors shadow-sm z-10 hover:scale-110 ${effect.spawnX !== undefined ? 'bg-green-300' : 'bg-white hover:bg-gray-200'}`} title="Set Location"><Crosshair size={12} className={effect.spawnX !== undefined ? 'text-black' : 'text-gray-400'} /></button>
+                                                            <>
+                                                                <button onClick={() => setPickingLocationFor({ ruleId: rule.id, effectIndex: idx })} className={`absolute -top-2 -left-2 w-6 h-6 border-2 border-black rounded-full flex items-center justify-center transition-colors shadow-sm z-10 hover:scale-110 ${effect.spawnX !== undefined ? 'bg-green-300' : 'bg-white hover:bg-gray-200'}`} title="Set Location"><Crosshair size={12} className={effect.spawnX !== undefined ? 'text-black' : 'text-gray-400'} /></button>
+                                                                <button onClick={() => setSpawnConfigModal({ ruleId: rule.id, effectIndex: idx, randomY: !!effect.spawnRandomY, minY: effect.spawnYMin || 0, maxY: effect.spawnYMax || SCENE_HEIGHT, scale: effect.spawnScale || 1.0, scaleX: effect.spawnScaleX, scaleY: effect.spawnScaleY, vx: effect.spawnVelocity?.x || 0, vy: effect.spawnVelocity?.y || 0, x: effect.spawnX, y: effect.spawnY, mode: effect.spawnMode, actorId2: effect.spawnActorId2, gap: effect.spawnGap })} className={`absolute -bottom-2 -left-2 w-6 h-6 border-2 border-black rounded-full flex items-center justify-center transition-colors shadow-sm z-10 hover:scale-110 ${effect.spawnRandomY ? 'bg-purple-300' : 'bg-white hover:bg-gray-200'}`} title="Random Y"><Dices size={12} className={effect.spawnRandomY ? 'text-black' : 'text-gray-400'} /></button>
+                                                            </>
                                                         )}
                                                         {isAnim && effect.isLoop && <div className="absolute top-0 right-0 bg-purple-600 rounded-full p-[2px] border border-white"><Repeat size={8} className="text-white" /></div>}
                                                     </div>
@@ -2294,6 +2341,48 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                                         >
                                                             <Settings size={8} /> CONFIG
                                                         </button>
+                                                    </div>
+                                                    <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center hover:scale-110 z-10"><X size={14} /></button>
+                                                </div>
+                                            );
+                                        }
+
+                                        // SET VELOCITY
+                                        if (effect.type === InteractionType.SET_VELOCITY) {
+                                            return (
+                                                <div key={idx} className="relative group shrink-0">
+                                                    <div className="flex flex-col items-center bg-white border-2 border-sky-500 rounded-lg p-2 shadow-sm h-[90px] min-w-[80px] justify-center gap-1">
+                                                        <span className="text-[10px] font-bold text-sky-600 uppercase">VELOCITY</span>
+                                                        <button
+                                                            onClick={() => setVelocityConfigModal({ ruleId: rule.id, effectIndex: idx, vx: effect.velocity?.x || 0, vy: effect.velocity?.y || 0 })}
+                                                            className="w-10 h-10 border-2 border-black rounded bg-sky-100 hover:bg-sky-200 flex items-center justify-center transition-transform hover:scale-105"
+                                                        >
+                                                            <Wind size={20} className="text-sky-600" />
+                                                        </button>
+                                                        <div className="text-[8px] bg-sky-100 px-2 rounded-full max-w-[70px] truncate mt-1">
+                                                            {effect.velocity?.x || 0}, {effect.velocity?.y || 0}
+                                                        </div>
+                                                    </div>
+                                                    <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center hover:scale-110 z-10"><X size={14} /></button>
+                                                </div>
+                                            );
+                                        }
+
+                                        // SET GRAVITY
+                                        if (effect.type === InteractionType.SET_GRAVITY) {
+                                            return (
+                                                <div key={idx} className="relative group shrink-0">
+                                                    <div className="flex flex-col items-center bg-white border-2 border-violet-500 rounded-lg p-2 shadow-sm h-[90px] min-w-[80px] justify-center gap-1">
+                                                        <span className="text-[10px] font-bold text-violet-600 uppercase">GRAVITY</span>
+                                                        <button
+                                                            onClick={() => setGravityConfigModal({ ruleId: rule.id, effectIndex: idx, hasScreenCollision: effect.hasScreenCollision || false })}
+                                                            className="w-10 h-10 border-2 border-black rounded bg-violet-100 hover:bg-violet-200 flex items-center justify-center transition-transform hover:scale-105"
+                                                        >
+                                                            <ArrowDown size={20} className="text-violet-600" />
+                                                        </button>
+                                                        <div className="text-[8px] bg-violet-100 px-2 rounded-full max-w-[70px] truncate mt-1">
+                                                            {effect.hasScreenCollision ? 'BOUNDED' : 'ON'}
+                                                        </div>
                                                     </div>
                                                     <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center hover:scale-110 z-10"><X size={14} /></button>
                                                 </div>
@@ -2574,6 +2663,431 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                     </div>
                 )
             }
-        </div >
+            {/* VELOCITY CONFIG MODAL */}
+            {
+                velocityConfigModal && (
+                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
+                        <div className="bg-white p-6 rounded-xl border-4 border-black shadow-[8px_8px_0px_rgba(0,0,0,1)] w-[300px] animate-bounce-in">
+                            <h3 className="text-2xl font-black mb-6 font-['Gochi_Hand'] text-center flex items-center justify-center gap-2">
+                                <Wind size={28} className="text-sky-500" />
+                                VELOCITY
+                            </h3>
+
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block font-bold text-xs mb-1">X Velocity (Horizontal)</label>
+                                    <input
+                                        type="range"
+                                        min="-20"
+                                        max="20"
+                                        step="1"
+                                        value={velocityConfigModal.vx}
+                                        onChange={(e) => setVelocityConfigModal({ ...velocityConfigModal, vx: parseInt(e.target.value) })}
+                                        className="w-full h-4 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-sky-500 border-2 border-black"
+                                    />
+                                    <div className="text-center font-bold">{velocityConfigModal.vx}</div>
+                                </div>
+                                <div>
+                                    <label className="block font-bold text-xs mb-1">Y Velocity (Vertical)</label>
+                                    <input
+                                        type="range"
+                                        min="-20"
+                                        max="20"
+                                        step="1"
+                                        value={velocityConfigModal.vy}
+                                        onChange={(e) => setVelocityConfigModal({ ...velocityConfigModal, vy: parseInt(e.target.value) })}
+                                        className="w-full h-4 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-sky-500 border-2 border-black"
+                                    />
+                                    <div className="text-center font-bold">{velocityConfigModal.vy}</div>
+                                </div>
+
+                                <div className="flex justify-end gap-2 mt-4">
+                                    <button
+                                        onClick={() => setVelocityConfigModal(null)}
+                                        className="px-4 py-2 bg-gray-200 border-2 border-black rounded-lg font-bold font-['Gochi_Hand'] hover:bg-gray-300"
+                                    >
+                                        CANCEL
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            updateEffect(velocityConfigModal.ruleId, velocityConfigModal.effectIndex, { velocity: { x: velocityConfigModal.vx, y: velocityConfigModal.vy } });
+                                            setVelocityConfigModal(null);
+                                        }}
+                                        className="px-4 py-2 bg-sky-400 border-2 border-black rounded-lg font-bold font-['Gochi_Hand'] hover:bg-sky-500 shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-[2px] active:shadow-none"
+                                    >
+                                        SAVE
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+
+            {/* GRAVITY CONFIG MODAL */}
+            {gravityConfigModal && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
+                    <div className="bg-white p-6 rounded-xl border-4 border-black shadow-[8px_8px_0px_rgba(0,0,0,1)] w-[300px] animate-bounce-in">
+                        <h3 className="text-2xl font-black mb-6 font-['Gochi_Hand'] text-center flex items-center justify-center gap-2">
+                            <ArrowDown size={28} className="text-violet-500" />
+                            GRAVITY
+                        </h3>
+
+                        <div className="space-y-4">
+                            <div className="flex items-center gap-2 bg-violet-50 p-3 rounded-lg border border-violet-200">
+                                <input
+                                    type="checkbox"
+                                    checked={gravityConfigModal.hasScreenCollision}
+                                    onChange={(e) => setGravityConfigModal({ ...gravityConfigModal, hasScreenCollision: e.target.checked })}
+                                    className="w-5 h-5 accent-violet-500"
+                                />
+                                <div>
+                                    <label className="font-bold text-sm block">Screen Bounds</label>
+                                    <span className="text-xs text-gray-500">Keep object inside screen</span>
+                                </div>
+                            </div>
+
+                            <div className="flex justify-end gap-2 mt-4">
+                                <button
+                                    onClick={() => setGravityConfigModal(null)}
+                                    className="px-4 py-2 bg-gray-200 border-2 border-black rounded-lg font-bold font-['Gochi_Hand'] hover:bg-gray-300"
+                                >
+                                    CANCEL
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        updateEffect(gravityConfigModal.ruleId, gravityConfigModal.effectIndex, { hasScreenCollision: gravityConfigModal.hasScreenCollision });
+                                        setGravityConfigModal(null);
+                                    }}
+                                    className="px-4 py-2 bg-violet-400 border-2 border-black rounded-lg font-bold font-['Gochi_Hand'] hover:bg-violet-500 shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-[2px] active:shadow-none"
+                                >
+                                    SAVE
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* SPAWN CONFIG MODAL */}
+            {/* GRAVITY CONFIG MODAL */}
+            {gravityConfigModal && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
+                    <div className="bg-white p-6 rounded-xl border-4 border-black shadow-[8px_8px_0px_rgba(0,0,0,1)] w-[300px] animate-bounce-in">
+                        <h3 className="text-2xl font-black mb-6 font-['Gochi_Hand'] text-center flex items-center justify-center gap-2">
+                            <ArrowDown size={28} className="text-violet-500" />
+                            GRAVITY
+                        </h3>
+
+                        <div className="space-y-4">
+                            <div className="flex items-center gap-2 bg-violet-50 p-3 rounded-lg border border-violet-200">
+                                <input
+                                    type="checkbox"
+                                    checked={gravityConfigModal.hasScreenCollision}
+                                    onChange={(e) => setGravityConfigModal({ ...gravityConfigModal, hasScreenCollision: e.target.checked })}
+                                    className="w-5 h-5 accent-violet-500"
+                                />
+                                <div>
+                                    <label className="font-bold text-sm block">Screen Bounds</label>
+                                    <span className="text-xs text-gray-500">Keep object inside screen</span>
+                                </div>
+                            </div>
+
+                            <div className="flex justify-end gap-2 mt-4">
+                                <button
+                                    onClick={() => setGravityConfigModal(null)}
+                                    className="px-4 py-2 bg-gray-200 border-2 border-black rounded-lg font-bold font-['Gochi_Hand'] hover:bg-gray-300"
+                                >
+                                    CANCEL
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        updateEffect(gravityConfigModal.ruleId, gravityConfigModal.effectIndex, { hasScreenCollision: gravityConfigModal.hasScreenCollision });
+                                        setGravityConfigModal(null);
+                                    }}
+                                    className="px-4 py-2 bg-violet-400 border-2 border-black rounded-lg font-bold font-['Gochi_Hand'] hover:bg-violet-500 shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-[2px] active:shadow-none"
+                                >
+                                    SAVE
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* SPAWN CONFIG MODAL */}
+            {spawnConfigModal && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]" onClick={() => setSpawnConfigModal(null)}>
+                    <div className="bg-white p-4 rounded-xl shadow-2xl border-4 border-black w-80 max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+                        <h3 className="font-['Gochi_Hand'] text-2xl mb-4 text-center">Spawn Configuration</h3>
+
+                        <div className="mb-4">
+                            <label className="block font-bold text-xs mb-1">Spawn Mode</label>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => setSpawnConfigModal({ ...spawnConfigModal, mode: 'SINGLE' })}
+                                    className={`flex-1 py-1 rounded border-2 border-black font-bold text-xs ${(!spawnConfigModal.mode || spawnConfigModal.mode === 'SINGLE') ? 'bg-purple-400 text-white' : 'bg-white hover:bg-gray-100'}`}
+                                >
+                                    Single Object
+                                </button>
+                                <button
+                                    onClick={() => setSpawnConfigModal({ ...spawnConfigModal, mode: 'DOUBLE_VERTICAL', vx: spawnConfigModal.vx === 0 ? -5 : spawnConfigModal.vx, autoDestroy: true })}
+                                    className={`flex-1 py-1 rounded border-2 border-black font-bold text-xs ${spawnConfigModal.mode === 'DOUBLE_VERTICAL' ? 'bg-purple-400 text-white' : 'bg-white hover:bg-gray-100'}`}
+                                >
+                                    Pipe Pair
+                                </button>
+                            </div>
+                        </div>
+
+                        {spawnConfigModal.mode === 'DOUBLE_VERTICAL' && (
+                            <>
+                                <div className="mb-4 bg-purple-50 p-2 rounded border border-purple-200">
+                                    <div className="flex items-center justify-between mb-1">
+                                        <label className="font-bold text-xs">Gap Size</label>
+                                        <span className="text-xs font-bold bg-purple-200 px-1 rounded">{spawnConfigModal.gap || 100}px</span>
+                                    </div>
+                                    <input
+                                        type="range"
+                                        min="20"
+                                        max="200"
+                                        step="5"
+                                        value={spawnConfigModal.gap || 100}
+                                        onChange={(e) => setSpawnConfigModal({ ...spawnConfigModal, gap: parseInt(e.target.value) })}
+                                        className="w-full h-4 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-500 border-2 border-black"
+                                    />
+                                    <p className="text-[10px] text-gray-500 mt-1 text-center">Vertical space between pipes</p>
+                                </div>
+
+                                <div className="mb-4 bg-purple-50 p-2 rounded border border-purple-200">
+                                    <label className="block font-bold text-xs mb-1">Bottom Pipe Object</label>
+                                    <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto border border-gray-300 rounded p-1 bg-white">
+                                        <button
+                                            onClick={() => setSpawnConfigModal({ ...spawnConfigModal, actorId2: undefined })}
+                                            className={`w-8 h-8 border border-gray-300 rounded flex items-center justify-center ${!spawnConfigModal.actorId2 ? 'bg-purple-200 ring-2 ring-purple-500' : 'hover:bg-gray-100'}`}
+                                            title="Same as Top Pipe"
+                                        >
+                                            <span className="text-xs font-bold">=</span>
+                                        </button>
+                                        {gameData.actors.map(a => (
+                                            <button
+                                                key={a.id}
+                                                onClick={() => setSpawnConfigModal({ ...spawnConfigModal, actorId2: a.id })}
+                                                className={`w-8 h-8 border border-gray-300 rounded p-0.5 ${spawnConfigModal.actorId2 === a.id ? 'bg-purple-200 ring-2 ring-purple-500' : 'hover:bg-gray-100'}`}
+                                                title={a.name}
+                                            >
+                                                <img src={a.imageData} className="w-full h-full object-contain" />
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            </>
+                        )}
+
+                        {/* Auto-Destroy: Always ON for Pipe Pair, optional for Single */}
+                        {spawnConfigModal.mode !== 'DOUBLE_VERTICAL' && (
+                            <div className="flex items-center gap-2 mb-4 bg-gray-100 p-2 rounded border border-gray-300">
+                                <input
+                                    type="checkbox"
+                                    checked={spawnConfigModal.autoDestroy}
+                                    onChange={(e) => setSpawnConfigModal({ ...spawnConfigModal, autoDestroy: e.target.checked })}
+                                    className="w-4 h-4 accent-red-500"
+                                />
+                                <div>
+                                    <label className="font-bold text-sm block">Auto-Destroy Off-Screen</label>
+                                    <span className="text-[10px] text-gray-500">Remove object when it leaves the view</span>
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="flex items-center gap-2 mb-4">
+                            <input
+                                type="checkbox"
+                                checked={spawnConfigModal.randomY}
+                                onChange={(e) => setSpawnConfigModal({ ...spawnConfigModal, randomY: e.target.checked })}
+                                className="w-4 h-4 accent-purple-500"
+                            />
+                            <label className="font-bold text-sm">Randomize Height {spawnConfigModal.mode === 'DOUBLE_VERTICAL' ? '(Recommended)' : ''}</label>
+                        </div>
+
+                        {/* Hide Min/Max Y for Double Spawn as it's auto-clamped */}
+                        {spawnConfigModal.randomY && spawnConfigModal.mode !== 'DOUBLE_VERTICAL' && (
+                            <>
+                                <div>
+                                    <label className="block font-bold text-xs mb-1">Min Y</label>
+                                    <input
+                                        type="number"
+                                        value={spawnConfigModal.minY ?? 0}
+                                        onChange={(e) => setSpawnConfigModal({ ...spawnConfigModal, minY: parseInt(e.target.value) })}
+                                        className="w-full p-1 border border-gray-300 rounded text-sm font-['Gochi_Hand']"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block font-bold text-xs mb-1">Max Y</label>
+                                    <input
+                                        type="number"
+                                        value={spawnConfigModal.maxY ?? SCENE_HEIGHT}
+                                        onChange={(e) => setSpawnConfigModal({ ...spawnConfigModal, maxY: parseInt(e.target.value) })}
+                                        className="w-full p-1 border border-gray-300 rounded text-sm font-['Gochi_Hand']"
+                                    />
+                                </div>
+                            </>
+                        )}
+
+                        {/* Hide Scale/Position options for Double Spawn to simplify */}
+                        {spawnConfigModal.mode !== 'DOUBLE_VERTICAL' && (
+                            <div>
+                                <label className="block font-bold text-xs mb-1">Scale: {spawnConfigModal.scale?.toFixed(1) ?? '1.0'}x</label>
+                                <input
+                                    type="range"
+                                    min="0.1"
+                                    max="5.0"
+                                    step="0.1"
+                                    value={spawnConfigModal.scale ?? 1.0}
+                                    onChange={(e) => setSpawnConfigModal({ ...spawnConfigModal, scale: parseFloat(e.target.value) })}
+                                    className="w-full h-4 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-500 border-2 border-black"
+                                />
+                            </div>
+                        )}
+
+                        <div>
+                            <label className="block font-bold text-xs mb-1">
+                                {spawnConfigModal.mode === 'DOUBLE_VERTICAL' ? 'Pipe Thickness' : 'Width (Scale X)'}: {spawnConfigModal.scaleX?.toFixed(1) ?? 'Auto'}
+                            </label>
+                            <input
+                                type="range"
+                                min="0.1"
+                                max="5.0"
+                                step="0.1"
+                                value={spawnConfigModal.scaleX ?? 1.0}
+                                onChange={(e) => setSpawnConfigModal({ ...spawnConfigModal, scaleX: parseFloat(e.target.value) })}
+                                className="w-full h-4 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-500 border-2 border-black"
+                            />
+                            <button onClick={() => setSpawnConfigModal({ ...spawnConfigModal, scaleX: undefined })} className="text-xs text-red-500 underline">Reset</button>
+                        </div>
+
+                        {/* Hide Scale Y for Double Spawn as it's auto-calculated */}
+                        {spawnConfigModal.mode !== 'DOUBLE_VERTICAL' && (
+                            <div>
+                                <label className="block font-bold text-xs mb-1">Scale Y (Optional): {spawnConfigModal.scaleY?.toFixed(1) ?? 'Auto'}</label>
+                                <input
+                                    type="range"
+                                    min="0.1"
+                                    max="5.0"
+                                    step="0.1"
+                                    value={spawnConfigModal.scaleY ?? 1.0}
+                                    onChange={(e) => setSpawnConfigModal({ ...spawnConfigModal, scaleY: parseFloat(e.target.value) })}
+                                    className="w-full h-4 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-500 border-2 border-black"
+                                />
+                                <button onClick={() => setSpawnConfigModal({ ...spawnConfigModal, scaleY: undefined })} className="text-xs text-red-500 underline">Reset</button>
+                            </div>
+                        )}
+
+                        {/* Hide Spawn X for Double Spawn (always right side) */}
+                        {spawnConfigModal.mode !== 'DOUBLE_VERTICAL' && (
+                            <div>
+                                <label className="block font-bold text-xs mb-1">Spawn X (Optional): {spawnConfigModal.x ?? 'Auto'}</label>
+                                <input
+                                    type="number"
+                                    value={spawnConfigModal.x ?? ''}
+                                    placeholder="Auto"
+                                    onChange={(e) => setSpawnConfigModal({ ...spawnConfigModal, x: e.target.value ? parseInt(e.target.value) : undefined })}
+                                    className="w-full h-8 bg-gray-200 rounded-lg px-2 border-2 border-black font-['Gochi_Hand']"
+                                />
+                            </div>
+                        )}
+
+                        {/* Hide Gap Y Position if Randomize is checked for Double Spawn */}
+                        {(!spawnConfigModal.randomY || spawnConfigModal.mode !== 'DOUBLE_VERTICAL') && (
+                            <div>
+                                <label className="block font-bold text-xs mb-1">
+                                    {spawnConfigModal.mode === 'DOUBLE_VERTICAL' ? 'Gap Y Position (Center)' : 'Spawn Y (Optional)'}:
+                                    {spawnConfigModal.y ?? 'Auto'}
+                                </label>
+                                <div className="flex gap-2">
+                                    <input
+                                        type="number"
+                                        value={spawnConfigModal.y ?? ''}
+                                        placeholder="Auto"
+                                        onChange={(e) => setSpawnConfigModal({ ...spawnConfigModal, y: e.target.value ? parseInt(e.target.value) : undefined })}
+                                        className="flex-1 h-8 bg-gray-200 rounded-lg px-2 border-2 border-black font-['Gochi_Hand']"
+                                    />
+                                    {spawnConfigModal.y !== undefined && (
+                                        <button
+                                            onClick={() => setSpawnConfigModal({ ...spawnConfigModal, y: undefined })}
+                                            className="px-2 bg-red-100 border-2 border-black rounded text-xs font-bold hover:bg-red-200"
+                                        >
+                                            Reset
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        <div>
+                            <label className="block font-bold text-xs mb-1">
+                                {spawnConfigModal.mode === 'DOUBLE_VERTICAL' ? 'Speed (Left <-> Right)' : 'Initial Velocity X'}: {spawnConfigModal.vx}
+                            </label>
+                            <input
+                                type="range"
+                                min="-20"
+                                max="20"
+                                step="1"
+                                value={spawnConfigModal.vx}
+                                onChange={(e) => setSpawnConfigModal({ ...spawnConfigModal, vx: parseInt(e.target.value) })}
+                                className="w-full h-4 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-500 border-2 border-black"
+                            />
+                        </div>
+
+                        {/* Hide Velocity Y for Double Spawn (usually 0) */}
+                        {spawnConfigModal.mode !== 'DOUBLE_VERTICAL' && (
+                            <div>
+                                <label className="block font-bold text-xs mb-1">Initial Velocity Y: {spawnConfigModal.vy}</label>
+                                <input
+                                    type="range"
+                                    min="-20"
+                                    max="20"
+                                    step="1"
+                                    value={spawnConfigModal.vy}
+                                    onChange={(e) => setSpawnConfigModal({ ...spawnConfigModal, vy: parseInt(e.target.value) })}
+                                    className="w-full h-4 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-500 border-2 border-black"
+                                />
+                            </div>
+                        )}
+
+                        <div className="flex justify-end gap-2 mt-4">
+                            <button
+                                onClick={() => setSpawnConfigModal(null)}
+                                className="px-4 py-2 bg-gray-200 border-2 border-black rounded-lg font-bold font-['Gochi_Hand'] hover:bg-gray-300"
+                            >
+                                CANCEL
+                            </button>
+                            <button
+                                onClick={() => {
+                                    updateEffect(spawnConfigModal.ruleId, spawnConfigModal.effectIndex, {
+                                        spawnRandomY: spawnConfigModal.randomY,
+                                        spawnYMin: spawnConfigModal.minY,
+                                        spawnYMax: spawnConfigModal.maxY,
+                                        spawnScale: spawnConfigModal.scale,
+                                        spawnScaleX: spawnConfigModal.scaleX,
+                                        spawnScaleY: spawnConfigModal.scaleY,
+                                        spawnVelocity: { x: spawnConfigModal.vx, y: spawnConfigModal.vy },
+                                        spawnX: spawnConfigModal.x,
+                                        spawnY: spawnConfigModal.y,
+                                        spawnMode: spawnConfigModal.mode,
+                                        spawnActorId2: spawnConfigModal.actorId2,
+                                        spawnGap: spawnConfigModal.gap,
+                                        spawnAutoDestroy: spawnConfigModal.autoDestroy
+                                    });
+                                    setSpawnConfigModal(null);
+                                }}
+                                className="px-4 py-2 bg-purple-400 border-2 border-black rounded-lg font-bold font-['Gochi_Hand'] hover:bg-purple-500 shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-[2px] active:shadow-none"
+                            >
+                                SAVE
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
     );
 };
