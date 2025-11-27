@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Rule, RuleTrigger, RuleEffect, LevelObject, Actor, InteractionType, ActiveAnimation, GameData, MusicRow } from '../types';
 
-import { SCENE_WIDTH, SCENE_HEIGHT, ACTOR_SIZE, MOVE_STEP, DEFAULT_ACTOR_ID, DEFAULT_HERO } from '../constants';
+import { SCENE_WIDTH, SCENE_HEIGHT, ACTOR_SIZE, MOVE_STEP, DEFAULT_ACTOR_ID, DEFAULT_HERO, CANVAS_SIZE } from '../constants';
 import { Trophy, Skull, MousePointer, DoorOpen, Loader2, Play, Volume2, Hash } from 'lucide-react';
 
 interface GamePlayerProps {
@@ -108,7 +108,7 @@ const AnimatedSprite = ({
 
     const [imgError, setImgError] = useState(false);
 
-    const displayImage = isPlaying ? activeFrames[frameIdx] : (baseActor.frames?.[0] || baseActor.imageData);
+    const displayImage = isPlaying ? activeFrames[frameIdx] : (baseActor.frames && baseActor.frames.length > 0 ? baseActor.frames[0] : baseActor.imageData);
 
     if (!displayImage) {
         console.warn('AnimatedSprite: No image data for actor', baseActor.id, baseActor.name);
@@ -1963,7 +1963,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
         return true;
     };
 
-    const getCollisionPoly = (obj: { x: number, y: number, scale?: number, scaleX?: number, scaleY?: number, actorId?: string }, buffer = 0) => {
+    const getCollisionPoly = (obj: { x: number, y: number, scale?: number, scaleX?: number, scaleY?: number, actorId?: string, flipY?: boolean }, buffer = 0) => {
         const actor = obj.actorId ? getActor(obj.actorId) : null;
         // Default to uniform scale if scaleX/Y not set
         const sx = (obj.scaleX !== undefined ? obj.scaleX : (obj.scale || 1.0));
@@ -1975,18 +1975,47 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
         let oy = 0;
 
         // CUSTOM COLLISION SHAPE
-        if (actor?.collisionShape && actor.collisionShape.type === 'RECT') {
-            // Use custom dimensions if available
-            // Note: We apply the object's scale to the custom shape too
-            const customW = actor.collisionShape.width ?? ACTOR_SIZE;
-            const customH = actor.collisionShape.height ?? ACTOR_SIZE;
-            const customOX = actor.collisionShape.offsetX ?? 0;
-            const customOY = actor.collisionShape.offsetY ?? 0;
+        if (actor?.collisionShape) {
+            // Coordinate conversion factor from Editor (128x128) to Game (80x80)
+            const coordScale = ACTOR_SIZE / CANVAS_SIZE;
 
-            w = customW * sx;
-            h = customH * sy;
-            ox = customOX * sx;
-            oy = customOY * sy;
+            if (actor.collisionShape.type === 'RECT') {
+                // Use custom dimensions if available
+                const customW = (actor.collisionShape.width ?? CANVAS_SIZE) * coordScale;
+                const customH = (actor.collisionShape.height ?? CANVAS_SIZE) * coordScale;
+                const customOX = (actor.collisionShape.offsetX ?? 0) * coordScale;
+                const customOY = (actor.collisionShape.offsetY ?? 0) * coordScale;
+
+                w = customW * sx;
+                h = customH * sy;
+                ox = customOX * sx;
+                oy = customOY * sy;
+            } else if (actor.collisionShape.type === 'POLYGON' && actor.collisionShape.points) {
+                // TRUE POLYGON COLLISION
+                // We return the actual points transformed
+                const totalHeight = ACTOR_SIZE * sy;
+
+                return actor.collisionShape.points.map(p => {
+                    // Scale point from Editor space to Game space
+                    let px = (p.x * coordScale) * sx;
+                    let py = (p.y * coordScale) * sy;
+
+                    if (obj.flipY) {
+                        py = totalHeight - py;
+                    }
+
+                    return {
+                        x: obj.x + px,
+                        y: obj.y + py
+                    };
+                });
+            }
+        }
+
+        // HANDLE FLIP Y (For Rects / Default Box)
+        if (obj.flipY) {
+            const totalHeight = ACTOR_SIZE * sy;
+            oy = totalHeight - (oy + h);
         }
 
         // Simple AABB for now (rotated sprites would need OBB)
@@ -2445,9 +2474,22 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                                 const displayWidth = ACTOR_SIZE * currentScaleX;
                                 const displayHeight = ACTOR_SIZE * currentScaleY;
 
+                                // DEBUG COLLISION BOX
+                                const debugPoly = getCollisionPoly(obj);
+                                // Convert poly to relative coordinates for rendering inside the div (or render absolute)
+                                // Actually, getCollisionPoly returns absolute coordinates.
+                                // We can render a separate SVG overlay or just a div.
+                                // Let's render a div for the box.
+                                const minX = Math.min(...debugPoly.map(p => p.x));
+                                const minY = Math.min(...debugPoly.map(p => p.y));
+                                const maxX = Math.max(...debugPoly.map(p => p.x));
+                                const maxY = Math.max(...debugPoly.map(p => p.y));
+                                const debugW = maxX - minX;
+                                const debugH = maxY - minY;
+
                                 if (!actor) return null;
 
-                                const playingActor = obj.activeAnimation?.playingActorId ? gameData.actors.find(a => a.id === obj.activeAnimation?.playingActorId) : actor;
+                                const playingActor = obj.activeAnimation ? (obj.activeAnimation.playingActorId ? gameData.actors.find(a => a.id === obj.activeAnimation!.playingActorId) : actor) : undefined;
 
                                 return (
                                     <div key={obj.id} className="absolute inset-0 pointer-events-none">
