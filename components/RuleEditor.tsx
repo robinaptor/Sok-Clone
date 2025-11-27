@@ -885,6 +885,11 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                 <SoundRecorder
                     onSave={handleSoundSave}
                     onClose={() => setRecordingForRuleId(null)}
+                    initialAudio={(() => {
+                        const rule = gameData.rules.find(r => r.id === recordingForRuleId);
+                        const sound = gameData.sounds.find(s => s.id === rule?.soundId);
+                        return sound?.data;
+                    })()}
                 />
             )}
 
