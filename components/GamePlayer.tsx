@@ -841,7 +841,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                         // 2D Gravity (Y-Axis - Flappy Bird)
                         if (o.hasGravity) {
                             if (o.vy === undefined) o.vy = 0;
-                            const gravity = 0.4; // Reduced from 0.5 + 0.8
+                            const gravity = Number(o.gravityForce ?? 0.4); // Ensure number
                             o.vy += gravity;
                         }
 
@@ -1127,14 +1127,38 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                 (effect.target === 'OBJECT' && !objectObjId) ||
                 (effect.type === InteractionType.SPAWN) ||
                 (effect.type === InteractionType.SAY) ||
+                (effect.type === InteractionType.SET_GRAVITY) ||
                 (effect.type === InteractionType.SWAP && effect.target === 'OBJECT' && !objectObjId)
             )) {
                 if (effect.type !== InteractionType.SPAWN) {
-                    targets = objectsRef.current.filter(o => o.actorId === effect.spawnActorId).map(o => o.id);
+                    // NEW: Support multiple target actors (e.g. for Gravity)
+                    if (effect.targetActorIds && effect.targetActorIds.length > 0) {
+                        const ids = effect.targetActorIds;
+                        targets = objectsRef.current.filter(o => ids.includes(o.actorId)).map(o => o.id);
+                    } else {
+                        // Legacy single target
+                        targets = objectsRef.current.filter(o => o.actorId === effect.spawnActorId).map(o => o.id);
+                    }
                 }
             } else {
                 const targetId = effect.target === 'OBJECT' && objectObjId ? objectObjId : subjectObjId;
-                if (targetId) targets.push(targetId);
+
+                // Handle GLOBAL subject (e.g. Game Starts)
+                if (targetId === 'GLOBAL') {
+                    const rule = gameData.rules.find(r => r.id === ruleId);
+                    if (rule && rule.subjectId) {
+                        const instances = objectsRef.current.filter(o => o.actorId === rule.subjectId).map(o => o.id);
+                        if (instances.length > 0) {
+                            targets.push(...instances);
+                        } else {
+                            targets.push('GLOBAL'); // Fallback for global effects if no instances
+                        }
+                    } else {
+                        targets.push('GLOBAL');
+                    }
+                } else if (targetId) {
+                    targets.push(targetId);
+                }
             }
 
             if (effect.type === InteractionType.SPAWN) {
@@ -1388,8 +1412,14 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                             if (o.id === targetId) {
                                 // Apply vertical velocity for jump (Z-axis)
                                 // Default intensity 15 if not specified
-                                const jumpStrength = effect.value || 15;
-                                return { ...o, vz: jumpStrength };
+                                const jumpStrength = Number(effect.value || 15);
+                                if (o.hasGravity) {
+                                    // Flappy Bird / Platformer Jump (Y-axis)
+                                    return { ...o, vy: -jumpStrength };
+                                } else {
+                                    // Top-down Jump (Z-axis)
+                                    return { ...o, vz: jumpStrength };
+                                }
                             }
                             return o;
                         }));
@@ -1488,11 +1518,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                     case InteractionType.SET_GRAVITY:
                         setObjects(prev => prev.map(o => {
                             if (o.id === targetId) {
-                                return { ...o, hasGravity: !o.hasGravity }; // Toggle? Or Set? Let's assume Toggle for now or True.
-                                // Actually, better to have a value. But for now, let's just enable it.
-                                // Or maybe the effect value 1 = ON, 0 = OFF.
-                                // Let's assume it enables it.
-                                return { ...o, hasGravity: true };
+                                return { ...o, hasGravity: true, gravityForce: effect.value || 0.4, hasScreenCollision: effect.hasScreenCollision };
                             }
                             return o;
                         }));
@@ -2531,7 +2557,83 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                                                 triggerTime={obj.activeAnimation?.startTime}
                                             />
 
-                                            {/* ATTACHED VARIABLE MONITOR (HUD) - COMMENTED OUT */}
+                                            {/* ATTACHED VARIABLE MONITOR (HUD) */}
+                                            {obj.variableMonitor && (
+                                                (() => {
+                                                    const vm = obj.variableMonitor;
+                                                    const variable = gameData.variables.find(v => v.id === vm.variableId);
+                                                    if (!variable) return null;
+
+                                                    const val = runtimeVariables[variable.id] ?? variable.initialValue;
+                                                    const offsetX = vm.offsetX ?? 0;
+                                                    const offsetY = vm.offsetY ?? -40; // Default above actor
+
+                                                    // Resolve colors
+                                                    const textColor = vm.textColor || vm.color || '#ffffff';
+                                                    const bgColor = vm.backgroundColor; // If undefined, we might use default or transparent
+                                                    const showBg = vm.showBackground ?? true; // Default to true if undefined
+
+                                                    return (
+                                                        <div
+                                                            className="absolute flex flex-col items-center justify-center pointer-events-none z-50 whitespace-nowrap"
+                                                            style={{
+                                                                left: `calc(50% + ${offsetX}px)`,
+                                                                top: `calc(50% + ${offsetY}px)`,
+                                                                transform: 'translate(-50%, -50%)',
+                                                            }}
+                                                        >
+                                                            {/* TEXT MODE */}
+                                                            {vm.mode === 'TEXT' && (
+                                                                <div
+                                                                    className={`px-2 py-1 rounded text-sm font-bold flex flex-col items-center transition-colors`}
+                                                                    style={{
+                                                                        color: textColor,
+                                                                        backgroundColor: showBg ? (bgColor || 'rgba(0,0,0,0.5)') : 'transparent',
+                                                                        border: showBg ? '1px solid rgba(255,255,255,0.2)' : 'none',
+                                                                        backdropFilter: showBg ? 'blur(4px)' : 'none',
+                                                                        textShadow: showBg ? 'none' : '0px 1px 2px rgba(0,0,0,0.8), 0px 0px 4px rgba(0,0,0,0.5)' // Strong shadow if no BG
+                                                                    }}
+                                                                >
+                                                                    {vm.showLabel && <span className="text-[10px] opacity-90 uppercase tracking-wider mb-0.5">{variable.name}</span>}
+                                                                    <span className="text-lg leading-none filter drop-shadow-sm">{Math.round(val)}</span>
+                                                                </div>
+                                                            )}
+
+                                                            {/* BAR MODE */}
+                                                            {vm.mode === 'BAR' && (
+                                                                <div className="flex flex-col items-center gap-1">
+                                                                    {vm.showLabel && (
+                                                                        <span
+                                                                            className="text-[10px] font-bold uppercase tracking-wider"
+                                                                            style={{
+                                                                                color: textColor,
+                                                                                textShadow: '0px 1px 2px rgba(0,0,0,0.8)'
+                                                                            }}
+                                                                        >
+                                                                            {variable.name}
+                                                                        </span>
+                                                                    )}
+                                                                    <div
+                                                                        className="relative overflow-hidden rounded-full border border-black/50 shadow-sm bg-gray-800"
+                                                                        style={{
+                                                                            width: vm.width || 60,
+                                                                            height: vm.height || 12,
+                                                                        }}
+                                                                    >
+                                                                        <div
+                                                                            className="h-full transition-all duration-300 ease-out"
+                                                                            style={{
+                                                                                width: `${Math.min(100, Math.max(0, (val / (vm.maxValue || 100)) * 100))}%`,
+                                                                                backgroundColor: vm.barColor || '#ef4444'
+                                                                            }}
+                                                                        />
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })()
+                                            )}
                                         </div>
                                     </div>
                                 );

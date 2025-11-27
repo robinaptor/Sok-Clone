@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { GameData, Rule, InteractionType, RuleTrigger, Sound, GlobalVariable, RuleEffect } from '../types';
 import { TRIGGER_MAGNETS, EFFECT_MAGNETS, SCENE_WIDTH, SCENE_HEIGHT } from '../constants';
-import { X, Plus, Play, Save, Edit2, Edit3, Trash2, Eye, Hand, Flag, Clock, Square, Utensils, ArrowRight, Trophy, DoorOpen, Skull, Zap, Ban, Timer, Sparkles, RefreshCw, Clapperboard, Hash, PlusCircle, MessageCircle, MessageSquare, Keyboard, Footprints, Activity, Crosshair, Target, ArrowDownCircle, Hourglass, Puzzle, Globe, MapPin, Volume2, VolumeX, Mic, Upload, Download, Info, HelpCircle, Settings, Repeat, ChevronsRight, Dices, RotateCw, ArrowDown, Calculator, Map, Gamepad2, Ghost, Coins, AlertTriangle, Copy, Clipboard, Heart, Music, Wind, LogOut } from 'lucide-react';
+import { X, Plus, Play, Save, Edit2, Edit3, Trash2, Eye, Hand, Flag, Clock, Square, Utensils, ArrowRight, Trophy, DoorOpen, Skull, Zap, Ban, Timer, ArrowDown, Pause, RotateCcw, Image as ImageIcon, Move, MousePointer, EyeOff, Lock, Unlock, Layers, Grid, Type, List, Check, Sparkles, RefreshCw, Clapperboard, Hash, PlusCircle, MessageCircle, MessageSquare, Keyboard, Footprints, Activity, Crosshair, Target, ArrowDownCircle, Hourglass, Puzzle, Globe, MapPin, Volume2, VolumeX, Mic, Upload, Download, Info, HelpCircle, Settings, Repeat, ChevronsRight, Dices, RotateCw, Calculator, Map, Gamepad2, Ghost, Coins, AlertTriangle, Copy, Clipboard, Heart, Music, Wind, LogOut } from 'lucide-react';
 import { SoundRecorder } from './SoundRecorder';
 import { IconEditor } from './IconEditor';
 
@@ -107,6 +107,8 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
         objectActorId?: string; // To show preview
         allowLoop?: boolean; // For ANIM
         currentLoop?: boolean;
+        allowMultiple?: boolean; // NEW: For Multi-Select
+        selectedIds?: string[]; // NEW: For Multi-Select
     } | null>(null);
 
     // State for Timer Config Modal
@@ -223,7 +225,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
     } | null>(null);
 
     // NEW: Gravity Config Modal
-    const [gravityConfigModal, setGravityConfigModal] = useState<{ ruleId: string, effectIndex: number, hasScreenCollision: boolean } | null>(null);
+    const [gravityConfigModal, setGravityConfigModal] = useState<{ ruleId: string, effectIndex: number, hasScreenCollision: boolean, force: number } | null>(null);
 
     // NEW: State for Creating/Editing Variable
     const [showNewVarModal, setShowNewVarModal] = useState(false);
@@ -609,6 +611,17 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
 
     const handleSelectionSave = (selectedId: string) => {
         if (!selectionModal) return;
+
+        // MULTI-SELECT LOGIC
+        if (selectionModal.allowMultiple) {
+            const currentIds = selectionModal.selectedIds || [];
+            const newIds = currentIds.includes(selectedId)
+                ? currentIds.filter(id => id !== selectedId)
+                : [...currentIds, selectedId];
+
+            setSelectionModal({ ...selectionModal, selectedIds: newIds });
+            return; // Don't close modal yet
+        }
 
         // SPECIAL CASE: If we are selecting a sprite for the Particle Modal
         if (particleModal) {
@@ -1008,14 +1021,41 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                         )}
 
                         {selectionModal.type === 'ACTOR' && (
-                            <div className="flex-1 overflow-y-auto p-2 grid grid-cols-3 gap-4">
-                                {gameData.actors.map(actor => (
-                                    <button key={actor.id} onClick={() => handleSelectionSave(actor.id)} className="aspect-square border-2 border-black rounded-lg p-2 hover:bg-yellow-100 hover:scale-105 transition-all flex flex-col items-center gap-1 shadow-sm">
-                                        <img src={actor.imageData} className="w-full h-full object-contain" />
-                                        <span className="text-xs font-bold truncate w-full text-center">{actor.name}</span>
-                                    </button>
-                                ))}
-                            </div>
+                            <>
+                                <div className="flex-1 overflow-y-auto p-2 grid grid-cols-3 gap-4">
+                                    {gameData.actors.map(actor => {
+                                        const isSelected = selectionModal.selectedIds?.includes(actor.id);
+                                        return (
+                                            <button
+                                                key={actor.id}
+                                                onClick={() => handleSelectionSave(actor.id)}
+                                                className={`aspect-square border-2 rounded-lg p-2 transition-all flex flex-col items-center gap-1 shadow-sm ${isSelected ? 'bg-violet-200 border-violet-600 scale-105 ring-2 ring-violet-400' : 'border-black hover:bg-yellow-100 hover:scale-105'}`}
+                                            >
+                                                <img src={actor.imageData} className="w-full h-full object-contain" />
+                                                <span className="text-xs font-bold truncate w-full text-center">{actor.name}</span>
+                                                {isSelected && <div className="absolute top-1 right-1 bg-violet-600 text-white rounded-full p-0.5"><Check size={12} /></div>}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                                {selectionModal.allowMultiple && (
+                                    <div className="pt-4 border-t-2 border-black flex justify-end">
+                                        <button
+                                            onClick={() => {
+                                                // Save Multi-Select Result
+                                                updateEffect(selectionModal.ruleId, selectionModal.effectIndex, {
+                                                    spawnActorId: selectionModal.selectedIds?.[0], // Keep first one for legacy/preview
+                                                    targetActorIds: selectionModal.selectedIds
+                                                });
+                                                setSelectionModal(null);
+                                            }}
+                                            className="px-6 py-2 bg-violet-500 text-white font-bold rounded-lg border-2 border-black shadow-[4px_4px_0px_rgba(0,0,0,1)] hover:translate-y-[1px] hover:shadow-[3px_3px_0px_rgba(0,0,0,1)] active:translate-y-[4px] active:shadow-none"
+                                        >
+                                            DONE ({selectionModal.selectedIds?.length || 0})
+                                        </button>
+                                    </div>
+                                )}
+                            </>
                         )}
 
                         {selectionModal.type === 'SCENE' && (
@@ -2374,14 +2414,41 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                                 <div key={idx} className="relative group shrink-0">
                                                     <div className="flex flex-col items-center bg-white border-2 border-violet-500 rounded-lg p-2 shadow-sm h-[90px] min-w-[80px] justify-center gap-1">
                                                         <span className="text-[10px] font-bold text-violet-600 uppercase">GRAVITY</span>
-                                                        <button
-                                                            onClick={() => setGravityConfigModal({ ruleId: rule.id, effectIndex: idx, hasScreenCollision: effect.hasScreenCollision || false })}
-                                                            className="w-10 h-10 border-2 border-black rounded bg-violet-100 hover:bg-violet-200 flex items-center justify-center transition-transform hover:scale-105"
-                                                        >
-                                                            <ArrowDown size={20} className="text-violet-600" />
-                                                        </button>
+                                                        <div className="flex gap-1 items-center">
+                                                            <button
+                                                                onClick={() => setGravityConfigModal({ ruleId: rule.id, effectIndex: idx, hasScreenCollision: effect.hasScreenCollision || false, force: effect.value || 0.4 })}
+                                                                className="w-10 h-10 border-2 border-black rounded bg-violet-100 hover:bg-violet-200 flex items-center justify-center transition-transform hover:scale-105"
+                                                            >
+                                                                <ArrowDown size={20} className="text-violet-600" />
+                                                            </button>
+                                                            {/* Target Selector for Global Rules (e.g. Start) */}
+                                                            {(rule.trigger === RuleTrigger.START || !rule.subjectId) && (
+                                                                <div className="flex flex-col items-center scale-90">
+                                                                    <button
+                                                                        onClick={() => setSelectionModal({
+                                                                            ruleId: rule.id,
+                                                                            effectIndex: idx,
+                                                                            type: 'ACTOR',
+                                                                            label: "GRAVITY ON WHO?",
+                                                                            allowTargetSelection: false,
+                                                                            allowMultiple: true, // Enable Multi-Select
+                                                                            selectedIds: effect.targetActorIds || (effect.spawnActorId ? [effect.spawnActorId] : [])
+                                                                        })}
+                                                                        className="w-8 h-8 border border-black rounded bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-transform hover:scale-105 relative"
+                                                                    >
+                                                                        {effect.spawnActorId ? <img src={getActorImage(effect.spawnActorId)} className="w-full h-full object-contain" /> : <span className="text-[8px] font-bold">WHO?</span>}
+                                                                        {/* Multi-Select Badge */}
+                                                                        {effect.targetActorIds && effect.targetActorIds.length > 1 && (
+                                                                            <div className="absolute -top-1 -right-1 bg-violet-600 text-white text-[8px] font-bold w-4 h-4 flex items-center justify-center rounded-full border border-white">
+                                                                                +{effect.targetActorIds.length - 1}
+                                                                            </div>
+                                                                        )}
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                        </div>
                                                         <div className="text-[8px] bg-violet-100 px-2 rounded-full max-w-[70px] truncate mt-1">
-                                                            {effect.hasScreenCollision ? 'BOUNDED' : 'ON'}
+                                                            {effect.hasScreenCollision ? 'BOUNDED' : 'ON'} ({effect.value || 0.4})
                                                         </div>
                                                     </div>
                                                     <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center hover:scale-110 z-10"><X size={14} /></button>
@@ -2747,49 +2814,20 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                 </div>
                             </div>
 
-                            <div className="flex justify-end gap-2 mt-4">
-                                <button
-                                    onClick={() => setGravityConfigModal(null)}
-                                    className="px-4 py-2 bg-gray-200 border-2 border-black rounded-lg font-bold font-['Gochi_Hand'] hover:bg-gray-300"
-                                >
-                                    CANCEL
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        updateEffect(gravityConfigModal.ruleId, gravityConfigModal.effectIndex, { hasScreenCollision: gravityConfigModal.hasScreenCollision });
-                                        setGravityConfigModal(null);
-                                    }}
-                                    className="px-4 py-2 bg-violet-400 border-2 border-black rounded-lg font-bold font-['Gochi_Hand'] hover:bg-violet-500 shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-[2px] active:shadow-none"
-                                >
-                                    SAVE
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* SPAWN CONFIG MODAL */}
-            {/* GRAVITY CONFIG MODAL */}
-            {gravityConfigModal && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
-                    <div className="bg-white p-6 rounded-xl border-4 border-black shadow-[8px_8px_0px_rgba(0,0,0,1)] w-[300px] animate-bounce-in">
-                        <h3 className="text-2xl font-black mb-6 font-['Gochi_Hand'] text-center flex items-center justify-center gap-2">
-                            <ArrowDown size={28} className="text-violet-500" />
-                            GRAVITY
-                        </h3>
-
-                        <div className="space-y-4">
-                            <div className="flex items-center gap-2 bg-violet-50 p-3 rounded-lg border border-violet-200">
+                            <div>
+                                <label className="block font-bold text-xs mb-1">Gravity Force: {gravityConfigModal.force}</label>
                                 <input
-                                    type="checkbox"
-                                    checked={gravityConfigModal.hasScreenCollision}
-                                    onChange={(e) => setGravityConfigModal({ ...gravityConfigModal, hasScreenCollision: e.target.checked })}
-                                    className="w-5 h-5 accent-violet-500"
+                                    type="range"
+                                    min="0.1"
+                                    max="2.0"
+                                    step="0.1"
+                                    value={gravityConfigModal.force}
+                                    onChange={(e) => setGravityConfigModal({ ...gravityConfigModal, force: parseFloat(e.target.value) })}
+                                    className="w-full h-4 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-violet-500 border-2 border-black"
                                 />
-                                <div>
-                                    <label className="font-bold text-sm block">Screen Bounds</label>
-                                    <span className="text-xs text-gray-500">Keep object inside screen</span>
+                                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                                    <span>Low (0.1)</span>
+                                    <span>High (2.0)</span>
                                 </div>
                             </div>
 
@@ -2802,7 +2840,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                 </button>
                                 <button
                                     onClick={() => {
-                                        updateEffect(gravityConfigModal.ruleId, gravityConfigModal.effectIndex, { hasScreenCollision: gravityConfigModal.hasScreenCollision });
+                                        updateEffect(gravityConfigModal.ruleId, gravityConfigModal.effectIndex, { hasScreenCollision: gravityConfigModal.hasScreenCollision, value: gravityConfigModal.force });
                                         setGravityConfigModal(null);
                                     }}
                                     className="px-4 py-2 bg-violet-400 border-2 border-black rounded-lg font-bold font-['Gochi_Hand'] hover:bg-violet-500 shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-[2px] active:shadow-none"
@@ -2814,6 +2852,8 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                     </div>
                 </div>
             )}
+
+
 
             {/* SPAWN CONFIG MODAL */}
             {spawnConfigModal && (

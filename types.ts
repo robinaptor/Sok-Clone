@@ -134,6 +134,7 @@ export interface RuleEffect {
   spawnActorId2?: string; // NEW: Second actor for double spawn
   spawnGap?: number; // NEW: Gap size for double spawn
   spawnAutoDestroy?: boolean; // NEW: Automatically destroy when off-screen
+  targetActorIds?: string[]; // NEW: Multiple target actors (e.g. for Gravity)
 }
 
 export interface Rule {
@@ -193,6 +194,7 @@ export interface LevelObject {
   hasScreenCollision?: boolean; // NEW: If true, clamps to screen edges
   autoDestroy?: boolean; // NEW: If true, destroys when off-screen
   flipY?: boolean; // NEW: If true, flips the object vertically
+  gravityForce?: number; // NEW: Custom gravity strength (default 0.4)
 
   // Inventory state
   heldBy?: string; // ID of the actor holding this object
