@@ -186,6 +186,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
     const musicRef = useRef<HTMLAudioElement | null>(null);
     const currentMusicIdRef = useRef<string | null>(null);
     const audioCtxRef = useRef<AudioContext | null>(null);
+    const lastSceneMusicIdRef = useRef<string | undefined>(undefined);
 
     // --- AUDIO HELPERS ---
     const getFrequency = (noteName: string) => {
@@ -212,7 +213,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
         return impulse;
     };
 
-    const playRowSound = (rowIndex: number, time: number, durationInSteps: number = 1, noteOverride?: string | string[], targetRows?: MusicRow[], targetTempo?: number) => {
+    const playRowSound = (rowIndex: number, time: number, durationInSteps: number = 1, noteOverride?: string | string[], targetRows?: MusicRow[], targetTempo?: number, globalVolume: number = 1.0) => {
         if (!audioCtxRef.current) return;
         const ctx = audioCtxRef.current;
         const rows = targetRows;
@@ -221,7 +222,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
 
         if (row.isMuted) return;
 
-        const volume = row.volume ?? 1.0;
+        const volume = (row.volume ?? 1.0) * globalVolume;
 
         // Calculate duration in seconds
         const currentTempo = targetTempo || 120;
@@ -466,8 +467,10 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
         const scene = gameData.scenes.find(s => s.id === currentSceneId);
         const musicId = scene?.backgroundMusicId;
 
-        // Only update if the music ID has actually changed
-        if (musicId !== currentMusicIdRef.current) {
+        // Only update if the music ID has actually changed (FROM THE SCENE PERSPECTIVE)
+        // This allows RULES to override the music (via PLAY_MUSIC) without this effect resetting it immediately.
+        if (musicId !== lastSceneMusicIdRef.current) {
+            lastSceneMusicIdRef.current = musicId;
             // Stop old music
             if (musicRef.current) {
                 musicRef.current.pause();
@@ -553,7 +556,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                                             const melodyNotes = row.notes?.[currentStep];
                                             const duration = note.duration || 1;
                                             if (duration > 0) {
-                                                playRowSound(rowIndex, nextNoteTime, duration, melodyNotes, track.rows, track.tempo);
+                                                playRowSound(rowIndex, nextNoteTime, duration, melodyNotes, track.rows, track.tempo, 1.0);
                                             }
                                         }
                                     } else {
@@ -698,6 +701,12 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
     const resetGame = (sceneId: string) => {
         setActiveSceneId(sceneId);
         const scene = gameData.scenes.find(s => s.id === sceneId) || gameData.scenes[0];
+
+        // Restore background music if it was overridden by a rule
+        // But don't restart it if it's already correct (to allow seamless transitions)
+        if (currentMusicIdRef.current !== (scene.backgroundMusicId || null)) {
+            lastSceneMusicIdRef.current = 'FORCE_RESET';
+        }
         setObjects(scene.objects.map(o => ({ ...o, activeAnimation: undefined })));
 
         // Reset Variables (Preserve Globals)
@@ -1100,7 +1109,10 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                 }
 
                 // Then wait for the configured duration (default 1s)
-                const waitTime = (effect.value || 1) * 1000;
+                const duration = effect.paramRefs?.['duration']
+                    ? (variablesRef.current[effect.paramRefs['duration']] ?? effect.value ?? 1)
+                    : (effect.value ?? 1);
+                const waitTime = duration * 1000;
                 await new Promise(resolve => setTimeout(resolve, waitTime));
 
                 previousActionDuration = 0;
@@ -1185,11 +1197,17 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                         const pipeFinalX = effect.spawnX !== undefined ? effect.spawnX : SCENE_WIDTH + 50;
 
                         // Velocity: Default to -5 (moving left) if 0 or undefined.
-                        const spawnVx = effect.spawnVelocity?.x ?? 0;
+                        // Velocity: Default to -5 (moving left) if 0 or undefined.
+                        const baseVx = effect.spawnVelocity?.x ?? 0;
+                        const spawnVx = effect.paramRefs?.['vx']
+                            ? (variablesRef.current[effect.paramRefs['vx']] ?? baseVx)
+                            : baseVx;
                         const finalVx = (spawnVx === 0) ? -5 : spawnVx;
 
                         // 2. Determine Gap Position (Y)
-                        const gap = effect.spawnGap || 150;
+                        const gap = effect.paramRefs?.['spawnGap']
+                            ? (variablesRef.current[effect.paramRefs['spawnGap']] ?? effect.spawnGap ?? 150)
+                            : (effect.spawnGap ?? 150);
                         const safeMargin = 100; // Minimum distance from top/bottom edges
                         const minGapY = safeMargin + gap / 2;
                         const maxGapY = SCENE_HEIGHT - safeMargin - gap / 2;
@@ -1231,7 +1249,9 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                             actorId: effect.spawnActorId!,
                             x: pipeFinalX,
                             y: topY,
-                            scale: effect.spawnScale || 1.0,
+                            scale: effect.paramRefs?.['spawnScale']
+                                ? (variablesRef.current[effect.paramRefs['spawnScale']] ?? effect.spawnScale ?? 1.0)
+                                : (effect.spawnScale ?? 1.0),
                             scaleX: scaleX,
                             scaleY: fixedScaleY,
                             vx: finalVx,
@@ -1247,7 +1267,9 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                             actorId: finalActorId2,
                             x: pipeFinalX,
                             y: bottomY,
-                            scale: effect.spawnScale || 1.0,
+                            scale: effect.paramRefs?.['spawnScale']
+                                ? (variablesRef.current[effect.paramRefs['spawnScale']] ?? effect.spawnScale ?? 1.0)
+                                : (effect.spawnScale ?? 1.0),
                             scaleX: scaleX,
                             scaleY: fixedScaleY,
                             vx: finalVx,
@@ -1264,11 +1286,17 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                             actorId: effect.spawnActorId!,
                             x: finalX,
                             y: finalY,
-                            scale: effect.spawnScale || 1.0,
+                            scale: effect.paramRefs?.['spawnScale']
+                                ? (variablesRef.current[effect.paramRefs['spawnScale']] ?? effect.spawnScale ?? 1.0)
+                                : (effect.spawnScale ?? 1.0),
                             scaleX: effect.spawnScaleX,
                             scaleY: effect.spawnScaleY,
-                            vx: effect.spawnVelocity?.x || 0,
-                            vy: effect.spawnVelocity?.y || 0,
+                            vx: effect.paramRefs?.['vx']
+                                ? (variablesRef.current[effect.paramRefs['vx']] ?? effect.spawnVelocity?.x ?? 0)
+                                : (effect.spawnVelocity?.x || 0),
+                            vy: effect.paramRefs?.['vy']
+                                ? (variablesRef.current[effect.paramRefs['vy']] ?? effect.spawnVelocity?.y ?? 0)
+                                : (effect.spawnVelocity?.y || 0),
                             isLocked: false,
                             autoDestroy: effect.spawnAutoDestroy
                         };
@@ -1304,13 +1332,22 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                                     musicRef.current.pause();
                                     musicRef.current = null;
                                 }
+                                if (audioCtxRef.current) {
+                                    audioCtxRef.current.close();
+                                    audioCtxRef.current = null;
+                                }
                                 currentMusicIdRef.current = musicId;
+
+                                // Resolve Volume
+                                const volume = effect.paramRefs?.['volume']
+                                    ? (variablesRef.current[effect.paramRefs['volume']] ?? effect.volume ?? 0.5)
+                                    : (effect.volume ?? 0.5);
 
                                 // Play new music (Reusing logic from useEffect)
                                 if (track.type === 'UPLOAD') {
                                     const audio = new Audio(track.data);
                                     audio.loop = true;
-                                    audio.volume = 0.5;
+                                    audio.volume = Math.max(0, Math.min(1, volume));
                                     audio.play().catch(e => console.error("Music play failed", e));
                                     musicRef.current = audio;
                                 } else if (track.type === 'GENERATED' && track.sequence) {
@@ -1318,6 +1355,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                                     console.log("Starting generated music playback (Effect) for:", track.name);
                                     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
                                     const ctx = new AudioContextClass();
+                                    audioCtxRef.current = ctx;
 
                                     // DEBUG STATE
                                     const updateDebugInfo = () => {
@@ -1355,7 +1393,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                                             const notesInStep = track.sequence!.filter(n => n.time === currentStep);
                                             notesInStep.forEach(note => {
                                                 const durationInSteps = note.duration || 1;
-                                                playRowSound(note.note, nextNoteTime, durationInSteps, undefined, track.rows, track.tempo);
+                                                playRowSound(note.note, nextNoteTime, durationInSteps, undefined, track.rows, track.tempo, volume);
                                             });
 
                                             nextNoteTime += stepDuration;
@@ -1412,7 +1450,10 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                             if (o.id === targetId) {
                                 // Apply vertical velocity for jump (Z-axis)
                                 // Default intensity 15 if not specified
-                                const jumpStrength = Number(effect.value || 15);
+                                const baseIntensity = effect.value || 15;
+                                const jumpStrength = Number(effect.paramRefs?.['force']
+                                    ? (variablesRef.current[effect.paramRefs['force']] ?? baseIntensity)
+                                    : baseIntensity);
                                 if (o.hasGravity) {
                                     // Flappy Bird / Platformer Jump (Y-axis)
                                     return { ...o, vy: -jumpStrength };
@@ -1505,8 +1546,12 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                             if (o.id === targetId) {
                                 return {
                                     ...o,
-                                    vx: effect.velocity?.x !== undefined ? effect.velocity.x : o.vx,
-                                    vy: effect.velocity?.y !== undefined ? effect.velocity.y : o.vy,
+                                    vx: effect.paramRefs?.['vx']
+                                        ? (variablesRef.current[effect.paramRefs['vx']] ?? effect.velocity?.x ?? o.vx)
+                                        : (effect.velocity?.x !== undefined ? effect.velocity.x : o.vx),
+                                    vy: effect.paramRefs?.['vy']
+                                        ? (variablesRef.current[effect.paramRefs['vy']] ?? effect.velocity?.y ?? o.vy)
+                                        : (effect.velocity?.y !== undefined ? effect.velocity.y : o.vy),
                                     // Auto-enable gravity if jumping (negative Y velocity) to prevent flying off forever
                                     hasGravity: (effect.velocity?.y !== undefined && effect.velocity.y < 0) ? true : o.hasGravity
                                 };
@@ -1518,7 +1563,10 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                     case InteractionType.SET_GRAVITY:
                         setObjects(prev => prev.map(o => {
                             if (o.id === targetId) {
-                                return { ...o, hasGravity: true, gravityForce: effect.value || 0.4, hasScreenCollision: effect.hasScreenCollision };
+                                const force = effect.paramRefs?.['force']
+                                    ? (variablesRef.current[effect.paramRefs['force']] ?? effect.value ?? 0.4)
+                                    : (effect.value ?? 0.4);
+                                return { ...o, hasGravity: true, gravityForce: force, hasScreenCollision: effect.hasScreenCollision };
                             }
                             return o;
                         }));

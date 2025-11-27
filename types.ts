@@ -135,6 +135,10 @@ export interface RuleEffect {
   spawnGap?: number; // NEW: Gap size for double spawn
   spawnAutoDestroy?: boolean; // NEW: Automatically destroy when off-screen
   targetActorIds?: string[]; // NEW: Multiple target actors (e.g. for Gravity)
+
+  // Variable Linking
+  paramRefs?: Record<string, string>; // Map param name (e.g. "force", "speed") to variableId
+  volume?: number; // For PLAY_MUSIC
 }
 
 export interface Rule {
