@@ -2938,6 +2938,22 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                 />
                                 <label className="font-bold text-sm">Screen Collision</label>
                             </div>
+
+                            <div className="border border-red-500 p-1 rounded">
+                                <VariableLinker
+                                    key="gravity-force-slider"
+                                    label="FORCE DE GRAVITÉ"
+                                    value={gravityConfigModal.force}
+                                    variableId={gravityConfigModal.paramRefs?.['force']}
+                                    onValueChange={(val) => setGravityConfigModal({ ...gravityConfigModal, force: val })}
+                                    onVariableChange={(varId) => setGravityConfigModal({
+                                        ...gravityConfigModal,
+                                        paramRefs: { ...gravityConfigModal.paramRefs, 'force': varId || '' }
+                                    })}
+                                    variables={visibleVariables}
+                                    min={0.1} max={2.0} step={0.1}
+                                />
+                            </div>
                         </div>
 
                         <div className="flex justify-end gap-2 mt-4">
