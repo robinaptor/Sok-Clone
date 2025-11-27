@@ -214,6 +214,11 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
         onUpdateCurrentScene(levelObjects.map(o => o.id === selectedObjId ? { ...o, scale: newScale } : o));
     };
 
+    const updateSelectedRotation = (newRotation: number) => {
+        if (!selectedObjId) return;
+        onUpdateCurrentScene(levelObjects.map(o => o.id === selectedObjId ? { ...o, rotation: newRotation } : o));
+    };
+
     const toggleObjectLock = (objId: string) => {
         const newLevel = levelObjects.map(obj => {
             if (obj.id === objId) return { ...obj, isLocked: !obj.isLocked };
@@ -517,7 +522,8 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
                                             left: obj.x,
                                             top: obj.y,
                                             width: ACTOR_SIZE * objScale,
-                                            height: ACTOR_SIZE * objScale
+                                            height: ACTOR_SIZE * objScale,
+                                            transform: `rotate(${obj.rotation || 0}deg)`
                                         }}
                                         data-help={`Object: ${actor.name}. Drag to move, click to select.`}
                                     >
@@ -603,6 +609,20 @@ export const SceneEditor: React.FC<SceneEditorProps> = ({
                                     />
                                 </div>
                                 <span className="text-[8px] font-bold text-gray-400">{Math.round((selectedInstance.scale || 1) * 100)}%</span>
+                            </div>
+
+                            {/* ROTATION SLIDER */}
+                            <div className="flex flex-col items-center flex-1" data-help="Rotate the selected object">
+                                <div className="flex items-center gap-1 w-full">
+                                    <RotateCw size={12} className="text-gray-400" />
+                                    <input
+                                        type="range" min="0" max="360" step="15"
+                                        value={selectedInstance.rotation || 0}
+                                        onChange={(e) => updateSelectedRotation(parseInt(e.target.value))}
+                                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-green-500"
+                                    />
+                                </div>
+                                <span className="text-[8px] font-bold text-gray-400">{selectedInstance.rotation || 0}°</span>
                             </div>
 
                             {/* LOCK TOGGLE */}

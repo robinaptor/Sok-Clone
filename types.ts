@@ -76,7 +76,8 @@ export enum InteractionType {
   STEP = 'STEP', // NEW: Move one step
   PLAY_MUSIC = 'PLAY_MUSIC', // NEW: Trigger music playback
   SET_VELOCITY = 'SET_VELOCITY', // NEW: Physics control
-  SET_GRAVITY = 'SET_GRAVITY' // NEW: Enable/Disable gravity
+  SET_GRAVITY = 'SET_GRAVITY', // NEW: Enable/Disable gravity
+  SET_ROTATION = 'SET_ROTATION' // NEW: Rotate object
 }
 
 export interface RuleEffect {
@@ -139,6 +140,8 @@ export interface RuleEffect {
   // Variable Linking
   paramRefs?: Record<string, string>; // Map param name (e.g. "force", "speed") to variableId
   volume?: number; // For PLAY_MUSIC
+  rotation?: number; // For SET_ROTATION
+  rotationOperation?: 'SET' | 'ADD'; // For SET_ROTATION
 }
 
 export interface Rule {
@@ -199,6 +202,8 @@ export interface LevelObject {
   autoDestroy?: boolean; // NEW: If true, destroys when off-screen
   flipY?: boolean; // NEW: If true, flips the object vertically
   gravityForce?: number; // NEW: Custom gravity strength (default 0.4)
+  rotation?: number; // NEW: Rotation in degrees
+
 
   // Inventory state
   heldBy?: string; // ID of the actor holding this object

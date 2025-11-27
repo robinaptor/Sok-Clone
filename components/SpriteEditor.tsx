@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Actor } from '../types';
 import { CANVAS_SIZE } from '../constants';
-import { Trash2, Pencil, Eraser, PaintBucket, RefreshCw, Plus, Copy, Circle, ChevronRight, Play, Square, Layers, Lasso, Scissors, Clipboard, X } from 'lucide-react';
+import { Trash2, Pencil, Eraser, PaintBucket, RefreshCw, Plus, Copy, Circle, ChevronRight, Play, Square, Layers, Lasso, Scissors, Clipboard, X, Upload } from 'lucide-react';
 
 interface SpriteEditorProps {
     actor: Actor;
@@ -837,6 +837,42 @@ export const SpriteEditor: React.FC<SpriteEditorProps> = ({ actor, onUpdate, onD
         }
     };
 
+    const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = (evt) => {
+                if (evt.target?.result) {
+                    const img = new Image();
+                    img.src = evt.target.result as string;
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        const ctx = canvas.getContext('2d');
+                        if (ctx) {
+                            // Resize to CANVAS_SIZE x CANVAS_SIZE
+                            canvas.width = CANVAS_SIZE;
+                            canvas.height = CANVAS_SIZE;
+
+                            // Clear and draw
+                            ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+                            ctx.drawImage(img, 0, 0, CANVAS_SIZE, CANVAS_SIZE);
+
+                            // Update current frame
+                            const newImageData = canvas.toDataURL();
+                            const newFrames = [...frames];
+                            newFrames[currentFrameIdx] = newImageData;
+                            setFrames(newFrames);
+
+                            const mainImage = currentFrameIdx === 0 ? newImageData : actor.imageData;
+                            onUpdate({ ...actor, imageData: mainImage, frames: newFrames });
+                        }
+                    };
+                }
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+
     // --- ONION SKIN HELPERS ---
     const getPrevOnionSkin = () => {
         if (currentFrameIdx > 0) {
@@ -932,6 +968,12 @@ export const SpriteEditor: React.FC<SpriteEditorProps> = ({ actor, onUpdate, onD
                             <RefreshCw size={24} strokeWidth={2.5} />
                         </button>
                     </div>
+
+                    <label className="w-full py-3 bg-violet-100 border-2 border-violet-500 rounded-lg cursor-pointer hover:bg-violet-200 font-bold text-violet-800 flex items-center justify-center gap-2 transition-transform hover:scale-105 shadow-sm mt-2">
+                        <Upload size={20} />
+                        UPLOAD IMAGE
+                        <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+                    </label>
                 </div>
 
                 {/* Selection Actions */}

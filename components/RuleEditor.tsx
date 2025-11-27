@@ -60,6 +60,7 @@ const VariableLinker: React.FC<VariableLinkerProps> = ({ label, value, variableI
                     />
                 </div>
             )}
+
         </div>
     );
 };
@@ -267,6 +268,14 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
     } | null>(null);
 
     // NEW: Spawn Config Modal (for Random Y)
+    const [rotationConfigModal, setRotationConfigModal] = useState<{
+        ruleId: string;
+        effectIndex: number;
+        rotation: number;
+        operation: 'SET' | 'ADD';
+        paramRefs?: Record<string, string>;
+    } | null>(null);
+
     const [spawnConfigModal, setSpawnConfigModal] = useState<{
         ruleId: string;
         effectIndex: number;
@@ -2550,6 +2559,32 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                                             );
                                         }
 
+                                        if (effect.type === InteractionType.SET_ROTATION) {
+                                            return (
+                                                <div key={idx} className="relative group shrink-0">
+                                                    <div className="flex flex-col items-center bg-white border-2 border-yellow-500 rounded-lg p-2 shadow-sm h-[90px] min-w-[80px] justify-center gap-1">
+                                                        <span className="text-[10px] font-bold text-yellow-600 uppercase">ROTATE</span>
+                                                        <button
+                                                            onClick={() => setRotationConfigModal({
+                                                                ruleId: rule.id,
+                                                                effectIndex: idx,
+                                                                rotation: effect.rotation || 0,
+                                                                operation: effect.rotationOperation || 'SET',
+                                                                paramRefs: effect.paramRefs || {}
+                                                            })}
+                                                            className="w-10 h-10 border-2 border-black rounded bg-yellow-100 hover:bg-yellow-200 flex items-center justify-center transition-transform hover:scale-105"
+                                                        >
+                                                            <RotateCw size={20} className="text-yellow-600" />
+                                                        </button>
+                                                        <div className="text-[8px] bg-yellow-100 px-2 rounded-full max-w-[70px] truncate mt-1">
+                                                            {effect.rotationOperation === 'ADD' ? '+' : '='} {effect.rotation || 0}°
+                                                        </div>
+                                                    </div>
+                                                    <button onClick={() => removeEffect(rule.id, idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 w-6 h-6 flex items-center justify-center hover:scale-110 z-10"><X size={14} /></button>
+                                                </div>
+                                            );
+                                        }
+
                                         // GENERIC / OTHER
                                         const magnet = EFFECT_MAGNETS.find(m => m.type === effect.type);
                                         return (
@@ -3277,6 +3312,69 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ gameData, onUpdateRules,
                     </div>
                 )
             }
+            {/* ROTATION CONFIG MODAL */}
+            {rotationConfigModal && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
+                    <div className="bg-white p-6 rounded-xl border-4 border-black shadow-[8px_8px_0px_rgba(0,0,0,1)] w-[300px] animate-bounce-in">
+                        <h3 className="text-2xl font-black mb-6 font-['Gochi_Hand'] text-center flex items-center justify-center gap-2">
+                            <RotateCw size={28} className="text-yellow-500" />
+                            ROTATION
+                        </h3>
+
+                        <div className="space-y-4">
+                            <div className="flex gap-2 bg-gray-100 p-1 rounded-lg border border-gray-300">
+                                <button
+                                    onClick={() => setRotationConfigModal({ ...rotationConfigModal, operation: 'SET' })}
+                                    className={`flex-1 py-1 rounded font-bold text-xs ${rotationConfigModal.operation === 'SET' ? 'bg-white shadow-sm text-black' : 'text-gray-500'}`}
+                                >
+                                    SET ANGLE
+                                </button>
+                                <button
+                                    onClick={() => setRotationConfigModal({ ...rotationConfigModal, operation: 'ADD' })}
+                                    className={`flex-1 py-1 rounded font-bold text-xs ${rotationConfigModal.operation === 'ADD' ? 'bg-white shadow-sm text-black' : 'text-gray-500'}`}
+                                >
+                                    SPIN (ADD)
+                                </button>
+                            </div>
+
+                            <VariableLinker
+                                label="Angle (Degrees)"
+                                value={rotationConfigModal.rotation}
+                                variableId={rotationConfigModal.paramRefs?.['rotation']}
+                                onValueChange={(val) => setRotationConfigModal({ ...rotationConfigModal, rotation: val })}
+                                onVariableChange={(varId) => setRotationConfigModal({
+                                    ...rotationConfigModal,
+                                    paramRefs: { ...rotationConfigModal.paramRefs, 'rotation': varId || '' }
+                                })}
+                                variables={visibleVariables}
+                                min={-360} max={360} step={15}
+                            />
+
+                            <div className="flex justify-end gap-2 mt-4">
+                                <button
+                                    onClick={() => setRotationConfigModal(null)}
+                                    className="px-4 py-2 bg-gray-200 border-2 border-black rounded-lg font-bold font-['Gochi_Hand'] hover:bg-gray-300"
+                                >
+                                    CANCEL
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        updateEffect(rotationConfigModal.ruleId, rotationConfigModal.effectIndex, {
+                                            rotation: rotationConfigModal.rotation,
+                                            rotationOperation: rotationConfigModal.operation,
+                                            paramRefs: rotationConfigModal.paramRefs
+                                        });
+                                        setRotationConfigModal(null);
+                                    }}
+                                    className="px-4 py-2 bg-yellow-400 border-2 border-black rounded-lg font-bold font-['Gochi_Hand'] hover:bg-yellow-500 shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-y-[2px] active:shadow-none"
+                                >
+                                    SAVE
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div >
     );
 };

@@ -1,5 +1,5 @@
 
-import { Actor, GameData, InteractionType, RuleTrigger } from './types';
+import { Actor, GameData, InteractionType, RuleTrigger } from './types'; // Force rebuild
 
 // Scene Dimensions in Pixels
 export const SCENE_WIDTH = 800;
@@ -68,7 +68,8 @@ export const INTERACTION_LABELS: Record<InteractionType, string> = {
   [InteractionType.STEP]: 'Step (1 Tile)',
   [InteractionType.PLAY_MUSIC]: 'Play Music',
   [InteractionType.SET_VELOCITY]: 'Set Velocity',
-  [InteractionType.SET_GRAVITY]: 'Set Gravity'
+  [InteractionType.SET_GRAVITY]: 'Set Gravity',
+  [InteractionType.SET_ROTATION]: 'Set Rotation'
 };
 
 // NEW: Magnet Definitions categorized
@@ -114,6 +115,7 @@ export const EFFECT_MAGNETS = [
   { type: InteractionType.PLAY_MUSIC, label: 'MUSIC', color: '#ec4899', icon: 'music' }, // Pink
   { type: InteractionType.SET_VELOCITY, label: 'VELOCITY', color: '#0ea5e9', icon: 'wind' }, // Sky Blue
   { type: InteractionType.SET_GRAVITY, label: 'GRAVITY', color: '#8b5cf6', icon: 'arrow-down' }, // Violet
+  { type: InteractionType.SET_ROTATION, label: 'ROTATE', color: '#eab308', icon: 'rotate-cw' }, // Yellow-500
 ];
 
 export const NOT_MAGNET = {

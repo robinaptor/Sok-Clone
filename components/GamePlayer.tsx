@@ -1321,6 +1321,24 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                 }
 
                 switch (effect.type) {
+                    case InteractionType.SET_ROTATION:
+                        // Resolve Rotation Value
+                        const rotationVal = effect.paramRefs?.['rotation']
+                            ? (variablesRef.current[effect.paramRefs['rotation']] ?? effect.rotation ?? 0)
+                            : (effect.rotation ?? 0);
+
+                        setObjects(prev => prev.map(o => {
+                            if (o.id === targetId) {
+                                let newRotation = rotationVal;
+                                if (effect.rotationOperation === 'ADD') {
+                                    newRotation = (o.rotation || 0) + rotationVal;
+                                }
+                                return { ...o, rotation: newRotation };
+                            }
+                            return o;
+                        }));
+                        break;
+
                     case InteractionType.PLAY_MUSIC:
                         if (effect.spawnActorId) { // spawnActorId holds the musicId
                             const musicId = effect.spawnActorId;
@@ -2590,7 +2608,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                                                 height: obj.scaleY ? obj.scaleY * ACTOR_SIZE : (obj.scale || 1) * ACTOR_SIZE,
                                                 transition: isDragging ? 'none' : 'transform 0.1s',
                                                 transformOrigin: 'center',
-                                                transform: `${isDragging ? 'scale(1.05)' : 'scale(1)'} ${obj.flipY ? 'scale(1, -1)' : ''}`, // Use scale for flip
+                                                transform: `${isDragging ? 'scale(1.05)' : 'scale(1)'} ${obj.flipY ? 'scale(1, -1)' : ''} rotate(${obj.rotation || 0}deg)`, // Use scale for flip
                                                 opacity: obj.isEphemeral ? 0.9 : 1
                                             }}
                                         >
@@ -2625,13 +2643,16 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameData, currentSceneId
                                                         <div
                                                             className="absolute flex flex-col items-center justify-center pointer-events-none z-50 whitespace-nowrap"
                                                             style={{
-                                                                left: `calc(50% + ${offsetX}px)`,
-                                                                top: `calc(50% + ${offsetY}px)`,
-                                                                transform: 'translate(-50%, -50%)',
+                                                                left: `50%`,
+                                                                top: `50%`,
+                                                                width: ACTOR_SIZE * (obj.scale || 1) * (obj.scaleX || 1),
+                                                                height: ACTOR_SIZE * (obj.scale || 1) * (obj.scaleY || 1),
+                                                                transform: `translate(-50%, -50%)`,
+                                                                zIndex: 1000 // Always on top of actors
                                                             }}
                                                         >
                                                             {/* TEXT MODE */}
-                                                            {vm.mode === 'TEXT' && (
+                                                            {(vm.mode === 'TEXT' || !vm.mode) && (
                                                                 <div
                                                                     className={`px-2 py-1 rounded text-sm font-bold flex flex-col items-center transition-colors`}
                                                                     style={{
