@@ -106,27 +106,32 @@ export const SoundRecorder: React.FC<SoundRecorderProps> = ({ onSave, onClose, i
 
     // Init AudioContext
     useEffect(() => {
+        console.log("SoundRecorder: Mounting, init AudioContext");
         audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
 
         // Load initial audio if present
         if (initialAudio) {
             const loadInitial = async () => {
+                console.log("SoundRecorder: Loading initial audio...");
                 setIsLoading(true);
                 try {
                     // Handle potential missing data URI prefix
                     const src = initialAudio.startsWith('data:') ? initialAudio : `data:audio/wav;base64,${initialAudio}`;
                     const res = await fetch(src);
                     const blob = await res.blob();
+                    console.log("SoundRecorder: Blob loaded", blob.type, blob.size);
                     setAudioBlob(blob);
 
                     const arrayBuffer = await blob.arrayBuffer();
                     if (audioContextRef.current) {
+                        console.log("SoundRecorder: Decoding audio data...");
                         const decodedBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer);
+                        console.log("SoundRecorder: Audio decoded successfully", decodedBuffer.duration, "seconds");
                         setOriginalAudioBuffer(decodedBuffer);
                     }
                 } catch (e) {
-                    console.error("Failed to load initial audio", e);
-                    // Optionally reset to record mode or show error
+                    console.error("SoundRecorder: Failed to load initial audio", e);
+                    alert("Error loading sound: " + e);
                 } finally {
                     setIsLoading(false);
                 }
@@ -141,24 +146,9 @@ export const SoundRecorder: React.FC<SoundRecorderProps> = ({ onSave, onClose, i
     }, [initialAudio]);
 
     // --- RECORDING LOGIC ---
-    const startRecording = async (e: React.MouseEvent | React.TouchEvent) => {
-        e.preventDefault();
-        if (isRecording) return;
-        isHoldingRef.current = true;
-
+    const startRecording = async () => {
         try {
-            // Ensure context is running
-            if (audioContextRef.current?.state === 'suspended') {
-                await audioContextRef.current.resume();
-            }
-
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
-            if (!isHoldingRef.current) {
-                stream.getTracks().forEach(track => track.stop());
-                return;
-            }
-
             const mediaRecorder = new MediaRecorder(stream);
             mediaRecorderRef.current = mediaRecorder;
             audioChunksRef.current = [];
@@ -170,17 +160,17 @@ export const SoundRecorder: React.FC<SoundRecorderProps> = ({ onSave, onClose, i
             };
 
             mediaRecorder.onstop = async () => {
-                const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-                setAudioBlob(blob);
+                const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
+                setAudioBlob(audioBlob);
 
-                // Decode immediately for processing
-                const arrayBuffer = await blob.arrayBuffer();
+                // Decode for effects
+                const arrayBuffer = await audioBlob.arrayBuffer();
                 if (audioContextRef.current) {
                     const decodedBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer);
                     setOriginalAudioBuffer(decodedBuffer);
                 }
 
-                stopVisualizer();
+                // Stop tracks
                 stream.getTracks().forEach(track => track.stop());
             };
 
@@ -188,86 +178,77 @@ export const SoundRecorder: React.FC<SoundRecorderProps> = ({ onSave, onClose, i
             setIsRecording(true);
             startVisualizer('RECORD');
 
+            // Animation for holding button
+            isHoldingRef.current = true;
         } catch (err) {
-            console.error("Error accessing mic:", err);
-            alert("Could not access microphone. Please check permissions.");
+            console.error("Error accessing microphone:", err);
+            alert("Could not access microphone");
+        }
+    };
+
+    const stopRecording = () => {
+        if (mediaRecorderRef.current && isRecording) {
+            mediaRecorderRef.current.stop();
             setIsRecording(false);
+            stopVisualizer();
             isHoldingRef.current = false;
         }
     };
 
-    const stopRecording = (e: React.MouseEvent | React.TouchEvent) => {
-        e.preventDefault();
-        isHoldingRef.current = false;
+    // ... (Visualizer & Preview Helpers) ...
 
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-            mediaRecorderRef.current.stop();
-            setIsRecording(false);
-        } else {
-            setIsRecording(false);
-        }
-    };
-
-    // --- VISUALIZER ---
-    const startVisualizer = (sourceType: 'RECORD' | 'PLAYBACK') => {
-        if (sourceType === 'RECORD') {
-            // Fake visualizer for recording (since we don't have the stream analyzer hooked up easily here without more code)
-            // Or we could hook it up, but for now random is fine as per original code
-            const animate = () => {
-                setVisuals(prev => prev.map(() => Math.random() * 40 + 5));
-                animationRef.current = requestAnimationFrame(animate);
-            };
-            animate();
-        } else {
-            // Playback visualizer using AnalyserNode
-            if (!analyserRef.current) return;
-
-            const bufferLength = analyserRef.current.frequencyBinCount;
-            const dataArray = new Uint8Array(bufferLength);
-
-            const animate = () => {
-                if (analyserRef.current) {
-                    analyserRef.current.getByteFrequencyData(dataArray);
-                    // Downsample to 20 bars
-                    const step = Math.floor(bufferLength / 20);
-                    const newVisuals = [];
-                    for (let i = 0; i < 20; i++) {
-                        const val = dataArray[i * step];
-                        newVisuals.push((val / 255) * 40 + 5);
-                    }
-                    setVisuals(newVisuals);
-                }
-                animationRef.current = requestAnimationFrame(animate);
-            };
-            animate();
-        }
-    };
-
+    // --- VISUALIZER & PREVIEW HELPERS ---
     const stopVisualizer = () => {
         cancelAnimationFrame(animationRef.current);
-        setVisuals(new Array(20).fill(5));
+        setVisuals(new Array(20).fill(10));
     };
 
-    // --- UPLOAD LOGIC ---
-    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file && audioContextRef.current) {
-            setAudioBlob(file);
-            const arrayBuffer = await file.arrayBuffer();
-            const decodedBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer);
-            setOriginalAudioBuffer(decodedBuffer);
+    const startVisualizer = (visMode: 'RECORD' | 'PLAYBACK') => {
+        stopVisualizer();
+        const animate = () => {
+            if (visMode === 'PLAYBACK' && analyserRef.current) {
+                const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
+                analyserRef.current.getByteFrequencyData(dataArray);
+                // Simple downsample to 20 bars
+                const step = Math.floor(dataArray.length / 20);
+                const newVisuals = Array.from({ length: 20 }, (_, i) => {
+                    const val = dataArray[i * step] || 0;
+                    return (val / 255) * 100;
+                });
+                setVisuals(newVisuals);
+            } else {
+                // Fake visuals for recording (random noise)
+                setVisuals(prev => prev.map(() => Math.random() * 50 + 20));
+            }
+            animationRef.current = requestAnimationFrame(animate);
+        };
+        animate();
+    };
+
+    const stopPreview = () => {
+        if (previewSourceRef.current) {
+            try { previewSourceRef.current.stop(); } catch (e) { }
+            previewSourceRef.current = null;
         }
+        setIsPlayingPreview(false);
+        stopVisualizer();
     };
 
     // --- PREVIEW WITH EFFECTS ---
     const playPreview = async () => {
-        if (!originalAudioBuffer || !audioContextRef.current) return;
+        console.log("SoundRecorder: playPreview called");
+        if (!originalAudioBuffer || !audioContextRef.current) {
+            console.error("SoundRecorder: No buffer or context", { buffer: !!originalAudioBuffer, context: !!audioContextRef.current });
+            return;
+        }
 
         const ctx = audioContextRef.current;
 
-        // CRITICAL FIX: Resume context if suspended (common in browsers before user gesture interaction propagates)
+        // CRITICAL FIX: Resume context if suspended
         if (ctx.state === 'suspended') {
+            console.log("SoundRecorder: Resuming suspended context...");
             await ctx.resume();
+            console.log("SoundRecorder: Context resumed, state:", ctx.state);
         }
 
         // Stop existing
@@ -275,52 +256,48 @@ export const SoundRecorder: React.FC<SoundRecorderProps> = ({ onSave, onClose, i
             try { previewSourceRef.current.stop(); } catch (e) { }
         }
 
-        const source = ctx.createBufferSource();
-        source.buffer = originalAudioBuffer;
+        try {
+            const source = ctx.createBufferSource();
+            source.buffer = originalAudioBuffer;
 
-        // 1. Pitch (Playback Rate)
-        source.playbackRate.value = pitch;
+            // 1. Pitch
+            source.playbackRate.value = pitch;
 
-        // 2. Distortion
-        const distortion = ctx.createWaveShaper();
-        distortion.curve = makeDistortionCurve(crunch);
-        distortion.oversample = '4x';
+            // 2. Distortion
+            const distortion = ctx.createWaveShaper();
+            distortion.curve = makeDistortionCurve(crunch);
+            distortion.oversample = '4x';
 
-        // 3. Volume
-        const gainNode = ctx.createGain();
-        gainNode.gain.value = volume;
+            // 3. Volume
+            const gainNode = ctx.createGain();
+            gainNode.gain.value = volume;
 
-        // 4. Analyser
-        const analyser = ctx.createAnalyser();
-        analyser.fftSize = 256;
-        analyserRef.current = analyser;
+            // 4. Analyser
+            const analyser = ctx.createAnalyser();
+            analyser.fftSize = 256;
+            analyserRef.current = analyser;
 
-        // Connect Graph
-        source.connect(distortion);
-        distortion.connect(gainNode);
-        gainNode.connect(analyser);
-        analyser.connect(ctx.destination);
+            // Connect Graph
+            source.connect(distortion);
+            distortion.connect(gainNode);
+            gainNode.connect(analyser);
+            analyser.connect(ctx.destination);
 
-        source.onended = () => {
-            setIsPlayingPreview(false);
-            stopVisualizer();
-        };
+            source.onended = () => {
+                console.log("SoundRecorder: Playback ended");
+                setIsPlayingPreview(false);
+                stopVisualizer();
+            };
 
-        previewSourceRef.current = source;
-        source.start();
-        setIsPlayingPreview(true);
-        startVisualizer('PLAYBACK');
-    };
-
-    const stopPreview = () => {
-        if (previewSourceRef.current) {
-            try { previewSourceRef.current.stop(); } catch (e) { }
-            setIsPlayingPreview(false);
-            stopVisualizer();
+            previewSourceRef.current = source;
+            source.start();
+            console.log("SoundRecorder: Playback started");
+            setIsPlayingPreview(true);
+            startVisualizer('PLAYBACK');
+        } catch (err) {
+            console.error("SoundRecorder: Error during playback setup", err);
         }
     };
-
-
     // --- RENDER & SAVE FINAL AUDIO ---
     const handleSave = async () => {
         if (!originalAudioBuffer) return;
@@ -389,98 +366,65 @@ export const SoundRecorder: React.FC<SoundRecorderProps> = ({ onSave, onClose, i
     };
 
     return (
-        <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center backdrop-blur-sm animate-in fade-in">
-            <div className="bg-[#f0fdf4] border-[4px] border-black rounded-xl shadow-[8px_8px_0px_rgba(0,0,0,0.5)] w-[400px] overflow-hidden flex flex-col font-['Space_Mono']">
-
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 font-mono">
+            <div className="bg-[#f0fdf4] rounded-lg shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] w-full max-w-md flex flex-col overflow-hidden border-4 border-black">
                 {/* HEADER */}
-                <div className="bg-[#22c55e] p-3 border-b-[4px] border-black flex justify-between items-center">
-                    <h2 className="text-xl font-bold text-black flex items-center gap-2">
-                        <span className="bg-black text-[#22c55e] p-1 rounded text-xs">MIC</span>
-                        FLIP-SOUND
-                    </h2>
-                    <button onClick={onClose} className="hover:bg-black/20 rounded p-1 transition-colors">
+                <div className="p-3 bg-[#22c55e] border-b-4 border-black flex justify-between items-center">
+                    <div className="flex items-center gap-2">
+                        <div className="bg-black text-[#22c55e] px-1.5 py-0.5 text-xs font-bold rounded-sm">MIC</div>
+                        <h2 className="text-lg font-black tracking-tight">SOUND RECORDER</h2>
+                    </div>
+                    <button onClick={onClose} className="hover:scale-110 transition-transform">
                         <X size={24} strokeWidth={3} />
                     </button>
                 </div>
 
-                {/* SCREEN AREA */}
-                <div className="p-6 flex flex-col items-center bg-[radial-gradient(#dcfce7_1px,transparent_1px)] bg-[length:10px_10px] max-h-[70vh] overflow-y-auto">
+                {/* MAIN CONTENT */}
+                <div className="p-6 flex flex-col items-center justify-center flex-grow gap-6">
 
-                    {/* VISUALIZER SCREEN */}
-                    <div className="w-full h-24 bg-[#14532d] border-[3px] border-black rounded-lg mb-4 relative flex items-center justify-center px-4 gap-1 overflow-hidden shadow-inner shrink-0">
-                        <div className="absolute inset-0 bg-[linear-gradient(transparent_9px,rgba(0,255,0,0.1)_10px),linear-gradient(90deg,transparent_9px,rgba(0,255,0,0.1)_10px)] bg-[length:10px_10px] pointer-events-none"></div>
+                    {/* VISUALIZER */}
+                    <div className="w-full h-24 bg-[#064e3b] rounded-xl border-4 border-black flex items-center justify-center overflow-hidden p-4 gap-1 shadow-inner relative">
+                        {/* Dashed line center */}
+                        <div className="absolute top-1/2 left-0 w-full h-0.5 border-t-2 border-dashed border-[#22c55e]/30 -translate-y-1/2 pointer-events-none"></div>
 
                         {visuals.map((h, i) => (
                             <div
                                 key={i}
-                                className="flex-1 bg-[#4ade80] rounded-sm transition-all duration-75"
-                                style={{ height: `${h}px` }}
+                                className="w-full bg-[#22c55e] rounded-full transition-all duration-75 ease-out shadow-[0_0_10px_rgba(34,197,94,0.5)]"
+                                style={{ height: `${Math.max(10, h)}%` }}
                             />
                         ))}
-                        {isLoading && (
-                            <div className="absolute inset-0 bg-black/50 flex items-center justify-center text-[#4ade80] font-bold z-10 animate-pulse">
-                                LOADING...
-                            </div>
-                        )}
-                        {!audioBlob && !isRecording && !isLoading && (
-                            <div className="absolute text-[#4ade80] font-bold opacity-50 animate-pulse">
-                                READY TO RECORD
-                            </div>
-                        )}
                     </div>
 
-                    {/* MODE TABS */}
-                    {!audioBlob && (
-                        <div className="flex w-full mb-4 border-2 border-black rounded overflow-hidden shrink-0">
+                    {/* RECORD BUTTON (Initial State) */}
+                    {mode === 'RECORD' && !audioBlob && (
+                        <div className="relative">
                             <button
-                                onClick={() => setMode('RECORD')}
-                                className={`flex-1 py-1 font-bold text-sm ${mode === 'RECORD' ? 'bg-[#22c55e] text-white' : 'bg-white hover:bg-gray-100'}`}
+                                onMouseDown={startRecording}
+                                onMouseUp={stopRecording}
+                                onMouseLeave={stopRecording}
+                                onTouchStart={startRecording}
+                                onTouchEnd={stopRecording}
+                                className={`w-20 h-20 rounded-full border-4 border-black flex items-center justify-center shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all active:translate-y-1 active:shadow-none ${isRecording ? 'bg-red-500 animate-pulse' : 'bg-[#ffc107] hover:bg-[#ffcd38]'}`}
                             >
-                                REC
+                                <Mic size={32} className="text-black" strokeWidth={2.5} />
                             </button>
-                            <button
-                                onClick={() => setMode('UPLOAD')}
-                                className={`flex-1 py-1 font-bold text-sm ${mode === 'UPLOAD' ? 'bg-[#22c55e] text-white' : 'bg-white hover:bg-gray-100'}`}
-                            >
-                                UPLOAD
-                            </button>
-                        </div>
-                    )}
-
-                    {/* MAIN CONTROLS */}
-                    {!audioBlob && (
-                        <div className="flex items-center justify-center gap-6 w-full">
-                            {mode === 'RECORD' ? (
-                                <button
-                                    onMouseDown={startRecording}
-                                    onMouseUp={stopRecording}
-                                    onMouseLeave={stopRecording}
-                                    onTouchStart={startRecording}
-                                    onTouchEnd={stopRecording}
-                                    className={`w-20 h-20 rounded-full border-[3px] border-black flex items-center justify-center shadow-[3px_3px_0px_black] active:translate-y-1 active:shadow-none transition-all ${isRecording ? 'bg-red-600 scale-95' : 'bg-red-500 hover:bg-red-400'}`}
-                                >
-                                    {isRecording ? <Square fill="white" stroke="none" /> : <div className="w-8 h-8 bg-white rounded-full"></div>}
-                                </button>
-                            ) : (
-                                <label className="w-20 h-20 rounded-full border-[3px] border-black flex flex-col items-center justify-center bg-blue-200 hover:bg-blue-300 shadow-[3px_3px_0px_black] cursor-pointer active:translate-y-1 active:shadow-none">
-                                    <Upload size={24} />
-                                    <span className="text-[10px] font-bold">FILE</span>
-                                    <input type="file" accept="audio/*" onChange={handleFileUpload} className="hidden" />
-                                </label>
-                            )}
+                            {isRecording && <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-red-500 text-white text-[10px] font-black px-2 py-1 rounded border-2 border-black animate-bounce whitespace-nowrap">RECORDING!</div>}
                         </div>
                     )}
 
                     {/* EDITOR INTERFACE (Visible after recording) */}
                     {audioBlob && (
-                        <div className="w-full flex flex-col gap-4 animate-in slide-in-from-bottom duration-300">
+                        <div className="w-full flex flex-col gap-6 animate-in slide-in-from-bottom duration-300">
 
-                            <div className="flex gap-4 justify-center">
+                            {/* PLAYBACK CONTROLS */}
+                            <div className="flex gap-4 justify-center items-center">
                                 <button
                                     onClick={isPlayingPreview ? stopPreview : playPreview}
-                                    className={`w-14 h-14 rounded-full border-2 border-black flex items-center justify-center hover:scale-110 transition-transform shadow-md ${isPlayingPreview ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'}`}
+                                    disabled={!originalAudioBuffer}
+                                    className={`w-16 h-16 rounded-full border-4 border-black flex items-center justify-center transition-all shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-y-1 active:shadow-none ${!originalAudioBuffer ? 'bg-gray-300 cursor-not-allowed' : isPlayingPreview ? 'bg-[#22c55e]' : 'bg-[#ffc107] hover:bg-[#ffcd38]'}`}
                                 >
-                                    {isPlayingPreview ? <Square fill="black" size={16} /> : <Play fill="black" size={20} />}
+                                    {isPlayingPreview ? <Square fill="black" size={20} /> : <Play fill="black" size={24} className={!originalAudioBuffer ? 'opacity-50' : ''} />}
                                 </button>
                                 <button
                                     onClick={() => {
@@ -491,77 +435,75 @@ export const SoundRecorder: React.FC<SoundRecorderProps> = ({ onSave, onClose, i
                                         setCrunch(0);
                                         setVolume(1.0);
                                     }}
-                                    className="w-14 h-14 rounded-full bg-gray-200 border-2 border-black flex items-center justify-center hover:bg-red-200 transition-colors shadow-md text-gray-500 hover:text-red-500"
+                                    className="w-12 h-12 rounded-full bg-gray-100 border-4 border-black flex items-center justify-center hover:bg-red-100 transition-all shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-y-1 active:shadow-none text-gray-500 hover:text-red-500"
                                 >
-                                    <Trash2 size={20} />
+                                    <Trash2 size={20} strokeWidth={2.5} />
                                 </button>
                             </div>
 
                             {/* EFFECTS CONTROLS */}
-                            <div className="bg-white/50 p-3 rounded border-2 border-black/10 flex flex-col gap-3">
-                                <div className="flex justify-between items-center">
-                                    <h3 className="font-bold text-xs text-gray-500 flex items-center gap-1"><Sliders size={12} /> EFFECTS</h3>
+                            <div className="bg-white p-4 rounded-xl border-4 border-black/10 flex flex-col gap-4">
+                                <div className="flex justify-between items-center border-b-2 border-dashed border-gray-200 pb-2">
+                                    <h3 className="font-black text-xs text-gray-400 flex items-center gap-1 tracking-wider"><Sliders size={12} /> EFFECTS</h3>
                                     <div className="flex gap-1">
-                                        <button onClick={() => applyPreset('CHIPMUNK')} className="px-2 py-0.5 bg-blue-100 border border-black rounded text-[10px] font-bold hover:bg-blue-200">CHIPMUNK</button>
-                                        <button onClick={() => applyPreset('MONSTER')} className="px-2 py-0.5 bg-purple-100 border border-black rounded text-[10px] font-bold hover:bg-purple-200">MONSTER</button>
-                                        <button onClick={() => applyPreset('RADIO')} className="px-2 py-0.5 bg-gray-200 border border-black rounded text-[10px] font-bold hover:bg-gray-300">RADIO</button>
+                                        <button onClick={() => applyPreset('CHIPMUNK')} className="px-2 py-1 bg-blue-100 border-2 border-black rounded text-[10px] font-bold hover:bg-blue-200 transition-transform hover:-translate-y-0.5">CHIPMUNK</button>
+                                        <button onClick={() => applyPreset('MONSTER')} className="px-2 py-1 bg-purple-100 border-2 border-black rounded text-[10px] font-bold hover:bg-purple-200 transition-transform hover:-translate-y-0.5">MONSTER</button>
+                                        <button onClick={() => applyPreset('RADIO')} className="px-2 py-1 bg-gray-200 border-2 border-black rounded text-[10px] font-bold hover:bg-gray-300 transition-transform hover:-translate-y-0.5">RADIO</button>
                                     </div>
                                 </div>
 
                                 {/* SPEED / PITCH */}
                                 <div className="flex flex-col gap-1">
-                                    <div className="flex justify-between text-[10px] font-bold">
-                                        <span>SPEED / PITCH</span>
+                                    <div className="flex justify-between text-[10px] font-black uppercase tracking-wide">
+                                        <span>Speed / Pitch</span>
                                         <span>{Math.round(pitch * 100)}%</span>
                                     </div>
                                     <input
                                         type="range" min="0.5" max="2.0" step="0.1"
                                         value={pitch} onChange={(e) => setPitch(parseFloat(e.target.value))}
-                                        className="w-full accent-[#22c55e] h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer border border-black"
+                                        className="w-full accent-[#22c55e] h-3 bg-gray-200 rounded-full appearance-none cursor-pointer border-2 border-black"
                                     />
                                 </div>
 
                                 {/* CRUNCH */}
                                 <div className="flex flex-col gap-1">
-                                    <div className="flex justify-between text-[10px] font-bold">
-                                        <span>CRUNCH</span>
+                                    <div className="flex justify-between text-[10px] font-black uppercase tracking-wide">
+                                        <span>Crunch</span>
                                         <span>{crunch > 0 ? Math.round(crunch) : 'OFF'}</span>
                                     </div>
                                     <input
                                         type="range" min="0" max="400" step="10"
                                         value={crunch} onChange={(e) => setCrunch(parseFloat(e.target.value))}
-                                        className="w-full accent-[#ef4444] h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer border border-black"
+                                        className="w-full accent-[#ef4444] h-3 bg-gray-200 rounded-full appearance-none cursor-pointer border-2 border-black"
                                     />
                                 </div>
 
                                 {/* VOLUME */}
                                 <div className="flex flex-col gap-1">
-                                    <div className="flex justify-between text-[10px] font-bold">
-                                        <span>VOLUME</span>
+                                    <div className="flex justify-between text-[10px] font-black uppercase tracking-wide">
+                                        <span>Volume</span>
                                         <span>{Math.round(volume * 100)}%</span>
                                     </div>
                                     <input
                                         type="range" min="0" max="2.0" step="0.1"
                                         value={volume} onChange={(e) => setVolume(parseFloat(e.target.value))}
-                                        className="w-full accent-[#3b82f6] h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer border border-black"
+                                        className="w-full accent-[#3b82f6] h-3 bg-gray-200 rounded-full appearance-none cursor-pointer border-2 border-black"
                                     />
                                 </div>
                             </div>
                         </div>
                     )}
 
-                    {mode === 'RECORD' && !audioBlob && <p className="text-[10px] mt-2 text-gray-500 font-bold select-none">HOLD BUTTON TO RECORD</p>}
-
                 </div>
 
                 {/* FOOTER SAVE */}
-                <div className="p-3 bg-gray-100 border-t-[4px] border-black flex justify-end">
+                <div className="p-4 bg-white border-t-4 border-black flex justify-end">
                     <button
                         onClick={handleSave}
                         disabled={!audioBlob}
-                        className={`sketch-btn px-6 py-2 font-bold flex items-center gap-2 ${!audioBlob ? 'opacity-50 cursor-not-allowed bg-gray-200' : 'bg-[#22c55e] hover:bg-green-400'}`}
+                        className={`w-full py-3 font-black text-lg flex items-center justify-center gap-2 border-4 border-black rounded-lg shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all active:translate-y-1 active:shadow-none ${!audioBlob ? 'opacity-50 cursor-not-allowed bg-gray-200' : 'bg-[#22c55e] hover:bg-[#16a34a]'}`}
                     >
-                        <Save size={18} /> SAVE SOUND
+                        <Save size={20} strokeWidth={3} /> SAVE SOUND
                     </button>
                 </div>
 
